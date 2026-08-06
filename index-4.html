@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#eef0f3">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Томсон">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Томсон</title>
+<style>
+:root{
+  --bg:#eef0f3;
+  --panel:#f6f7f9;
+  --text:#1c1c1e;
+  --muted:#8e8e93;
+  --line:rgba(60,60,67,.12);
+  --accent:#5b6cff;
+  --accent-soft:rgba(91,108,255,.12);
+  --danger:#ff3b30;
+  --green:#34c759;
+  --s1:-8px -8px 18px rgba(255,255,255,.95);
+  --s2:8px 8px 18px rgba(168,174,186,.32);
+  --si:inset 3px 3px 8px rgba(168,174,186,.28),inset -3px -3px 8px rgba(255,255,255,.9);
+  --radius:22px;
+  --safe:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{min-height:100%;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased}
+button,input,textarea,select{font:inherit;color:inherit;border:0;background:transparent;outline:0}
+button{cursor:pointer}
+.app{max-width:520px;margin:0 auto;padding:16px 14px calc(100px + var(--safe));min-height:100dvh}
+
+/* Top */
+.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.brand{font-size:28px;font-weight:700;letter-spacing:-.6px}
+.sub{font-size:13px;color:var(--muted);margin-top:2px}
+.ibtn{
+  width:44px;height:44px;border-radius:14px;
+  background:var(--panel);box-shadow:var(--s1),var(--s2);
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .15s,box-shadow .15s
+}
+.ibtn:active{transform:scale(.94);box-shadow:var(--si)}
+.ibtn svg{width:20px;height:20px;stroke:var(--text);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* Controls */
+.controls{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.seg{
+  display:flex;padding:4px;border-radius:14px;gap:2px;
+  background:var(--bg);box-shadow:var(--si)
+}
+.seg button{
+  padding:9px 16px;border-radius:11px;color:var(--muted);font-weight:600;font-size:14px
+}
+.seg button.on{
+  background:var(--panel);color:var(--text);
+  box-shadow:var(--s1),var(--s2)
+}
+.pill{
+  padding:9px 14px;border-radius:14px;font-weight:600;font-size:14px;
+  background:var(--panel);box-shadow:var(--s1),var(--s2);color:var(--text)
+}
+.pill:active{box-shadow:var(--si)}
+
+/* Halls */
+.halls{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 14px;scrollbar-width:none}
+.halls::-webkit-scrollbar{display:none}
+.hall{
+  flex:0 0 auto;min-width:112px;padding:12px 14px;border-radius:16px;
+  background:var(--panel);box-shadow:var(--s1),var(--s2);
+  color:var(--muted);transition:all .18s
+}
+.hall.on{color:var(--text);box-shadow:var(--si);outline:2px solid rgba(91,108,255,.28)}
+.hall b{display:block;font-size:15px;font-weight:700}
+.hall span{font-size:11px;opacity:.7}
+
+/* Date bar */
+.datebar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.date-title{font-size:22px;font-weight:700;letter-spacing:-.4px}
+.nav{display:flex;gap:6px}
+.nav .ibtn{width:38px;height:38px;border-radius:12px}
+.nav .ibtn svg{width:16px;height:16px}
+
+/* Calendar month */
+.cal{background:var(--panel);border-radius:24px;padding:12px 8px 16px;box-shadow:var(--s1),var(--s2)}
+.mgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.dow{text-align:center;font-size:11px;color:var(--muted);padding:6px 0;font-weight:600}
+.day{
+  min-height:68px;padding:6px;border-radius:12px;cursor:pointer;position:relative
+}
+.day:active{background:rgba(255,255,255,.5)}
+.day.today{outline:2px solid rgba(91,108,255,.3)}
+.day.muted{opacity:.3}
+.daynum{font-size:14px;font-weight:650}
+.dots{display:flex;gap:3px;flex-wrap:wrap;margin-top:8px}
+.dot{height:6px;min-width:16px;border-radius:99px;background:#b0b3b8}
+.dot.full{background:#ff3b30}
+.dot.half{background:linear-gradient(90deg,#8e8e93 50%,#ff3b30 50%)}
+.dot.none{background:#b0b3b8}
+
+/* Day timeline */
+.dayview{display:grid;grid-template-columns:48px 1fr;gap:6px;max-height:70vh;overflow:auto}
+.times{color:var(--muted);font-size:11px;font-weight:600}
+.time{height:56px;padding-top:2px}
+.timeline{
+  position:relative;min-height:1008px;
+  border-left:1px solid var(--line);
+  background:repeating-linear-gradient(to bottom,transparent 0,transparent 55px,var(--line) 56px)
+}
+.bitem{
+  position:absolute;left:6px;right:4px;border-radius:12px;padding:8px 10px;
+  overflow:hidden;cursor:pointer;
+  background:var(--panel);
+  box-shadow:3px 4px 12px rgba(160,165,175,.22),-2px -2px 8px rgba(255,255,255,.85);
+  border-left:4px solid #9b9da3
+}
+.bitem.full{border-left-color:#ff3b30}
+.bitem.half{border-left-color:#ff8a8f}
+.bitem.none{border-left-color:#9b9da3}
+.bitem strong{display:block;font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bitem small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+
+.empty{padding:48px 16px;text-align:center;color:var(--muted);font-size:14px}
+
+/* FAB */
+.fab-wrap{
+  position:fixed;left:50%;bottom:calc(18px + var(--safe));
+  transform:translateX(-50%);z-index:30
+}
+.fab{
+  display:flex;align-items:center;gap:8px;
+  padding:14px 22px;border-radius:20px;
+  background:#1c1c1e;color:#fff;font-weight:700;font-size:15px;
+  box-shadow:6px 8px 20px rgba(0,0,0,.18),-3px -3px 12px rgba(255,255,255,.6)
+}
+.fab:active{transform:scale(.97)}
+.fab svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:2.2;stroke-linecap:round}
+
+/* Overlay / Sheet */
+.overlay{
+  display:none;position:fixed;inset:0;z-index:50;
+  background:rgba(20,22,26,.32);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  padding:12px;overflow:auto;align-items:flex-end;justify-content:center
+}
+.overlay.show{display:flex}
+.sheet{
+  width:min(520px,100%);max-height:92dvh;overflow-y:auto;
+  background:var(--panel);border-radius:28px 28px 20px 20px;
+  padding:18px 16px calc(20px + var(--safe));
+  box-shadow:0 -8px 40px rgba(0,0,0,.12);
+  animation:up .28s ease
+}
+@keyframes up{from{transform:translateY(40px);opacity:.6}to{transform:translateY(0);opacity:1}}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.sheet-head h2{font-size:22px;font-weight:700;letter-spacing:-.3px}
+.sheet-head .ibtn{width:36px;height:36px;border-radius:11px}
+.sheet-head .ibtn svg{width:16px;height:16px}
+
+/* Form */
+.form{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field{
+  background:var(--bg);border-radius:14px;padding:10px 12px;box-shadow:var(--si)
+}
+.field.full{grid-column:1/-1}
+.field label{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.field input,.field textarea,.field select{
+  width:100%;font-size:15px;background:transparent;color:var(--text)
+}
+.field textarea{min-height:90px;resize:vertical}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{
+  width:40px;height:40px;border-radius:12px;
+  background:var(--bg);box-shadow:var(--s1),var(--s2);
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;transition:all .15s
+}
+.tag.on{box-shadow:var(--si);background:var(--accent-soft)}
+
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.act{
+  padding:12px 14px;border-radius:14px;font-weight:600;font-size:14px;
+  background:var(--bg);box-shadow:var(--s1),var(--s2);
+  display:inline-flex;align-items:center;gap:8px
+}
+.act svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.act.pri svg{stroke:#fff}
+.act:active{box-shadow:var(--si)}
+.act.pri{background:#1c1c1e;color:#fff;box-shadow:4px 6px 14px rgba(0,0,0,.16)}
+.act.danger{color:var(--danger)}
+
+/* Settings */
+.tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:14px;padding-bottom:2px}
+.tabs button{
+  flex:0 0 auto;padding:10px 14px;border-radius:12px;
+  font-weight:600;font-size:13px;color:var(--muted)
+}
+.tabs button.on{
+  background:var(--panel);color:var(--text);
+  box-shadow:var(--s1),var(--s2)
+}
+.slist{display:grid;gap:8px}
+.sitem{
+  background:var(--bg);border-radius:16px;padding:14px;
+  box-shadow:var(--si);display:flex;justify-content:space-between;align-items:center;gap:12px
+}
+.sitem b{display:block;font-size:15px}
+.sitem small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.sfield{background:var(--bg);border-radius:14px;padding:10px 12px;box-shadow:var(--si);margin-bottom:8px}
+.sfield label{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.sfield input,.sfield textarea{width:100%;font-size:15px}
+
+.hint{font-size:12px;color:var(--muted);line-height:1.4;margin-top:8px}
+
+/* Toast */
+.toast{
+  position:fixed;left:50%;bottom:calc(90px + var(--safe));
+  transform:translateX(-50%) translateY(20px);
+  background:#1c1c1e;color:#fff;padding:11px 18px;border-radius:16px;
+  font-weight:600;font-size:14px;opacity:0;pointer-events:none;
+  transition:.25s;z-index:100;white-space:nowrap;
+  box-shadow:0 8px 24px rgba(0,0,0,.2)
+}
+.toast.show{opacity:1;transform:translateX(-50%)}
+
+@media(max-width:420px){
+  .form{grid-template-columns:1fr}
+  .field.full{grid-column:auto}
+  .day{min-height:58px}
+  .brand{font-size:24px}
+  .date-title{font-size:19px}
+}
+
+.ibtn svg,.fab svg,.act svg,.sheet-head .ibtn svg{display:block}
+.ibtn svg use,.fab svg use,.act svg use{width:100%;height:100%}
+</style>
+</head>
+<body>
+
+<!-- SVG icon sprite (optimized, single parse) -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
+  <defs>
+    <symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </symbol>
+    <symbol id="i-chev-l" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 18l-6-6 6-6"/>
+    </symbol>
+    <symbol id="i-chev-r" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 18l6-6-6-6"/>
+    </symbol>
+    <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M18 6L6 18M6 6l12 12"/>
+    </symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+      <path d="M12 5v14M5 12h14"/>
+    </symbol>
+    <symbol id="i-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+      <path d="M17 21v-8H7v8M7 3v5h8"/>
+    </symbol>
+    <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/>
+    </symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+      <path d="M22 4L12 14.01 9 11.01"/>
+    </symbol>
+    <symbol id="i-cal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2"/>
+      <path d="M16 2v4M8 2v4M3 10h18"/>
+    </symbol>
+    <symbol id="i-cal-dots" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2"/>
+      <path d="M16 2v4M8 2v4M3 10h18"/>
+      <circle cx="8" cy="14" r=".9" fill="currentColor" stroke="none"/>
+      <circle cx="12" cy="14" r=".9" fill="currentColor" stroke="none"/>
+      <circle cx="16" cy="14" r=".9" fill="currentColor" stroke="none"/>
+      <circle cx="8" cy="18" r=".9" fill="currentColor" stroke="none"/>
+      <circle cx="12" cy="18" r=".9" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="app">
+  <div class="top">
+    <div>
+      <div class="brand">Томсон</div>
+      <div class="sub">Бронирование</div>
+    </div>
+    <button class="ibtn" id="btnSettings" aria-label="Настройки"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gear" xlink:href="#i-gear"/></svg></button>
+  </div>
+
+  <div class="controls">
+    <div class="seg">
+      <button class="on" id="vMonth">Месяц</button>
+      <button id="vDay">День</button>
+    </div>
+    <button class="pill" id="btnToday">Сегодня</button>
+  </div>
+
+  <div class="halls" id="halls"></div>
+
+  <div class="datebar">
+    <div class="date-title" id="dateTitle"></div>
+    <div class="nav">
+      <button class="ibtn" id="prev" aria-label="Назад"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chev-l" xlink:href="#i-chev-l"/></svg></button>
+      <button class="ibtn" id="next" aria-label="Вперёд"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chev-r" xlink:href="#i-chev-r"/></svg></button>
+    </div>
+  </div>
+
+  <div id="calendar"></div>
+</div>
+
+<div class="fab-wrap">
+  <button class="fab" id="btnNew"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus" xlink:href="#i-plus"/></svg>
+    Новая бронь
+  </button>
+</div>
+
+<!-- Booking sheet -->
+<div class="overlay" id="ovBooking">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2 id="bkTitle">Новая бронь</h2>
+      <button class="ibtn" id="bkClose" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-x" xlink:href="#i-x"/></svg></button>
+    </div>
+    <div class="form">
+      <div class="field"><label>Имя</label><input id="fName" placeholder="Анна" autocomplete="name"></div>
+      <div class="field"><label>Телефон</label><input id="fPhone" type="tel" placeholder="+7 923 000-00-00" inputmode="tel"></div>
+      <div class="field"><label>Дата</label><input id="fDate" type="date"></div>
+      <div class="field"><label>Гостей</label><input id="fGuests" type="number" min="1" max="30" value="1" inputmode="numeric"></div>
+      <div class="field"><label>Начало</label><input id="fStart" type="time" value="17:00"></div>
+      <div class="field"><label>Окончание</label><input id="fEnd" type="time" value="18:00"></div>
+      <div class="field"><label>Мессенджер</label>
+        <select id="fMsg"><option>Telegram</option><option>WhatsApp</option><option>MAX</option></select>
+      </div>
+      <div class="field"><label>Оплата</label>
+        <select id="fPay">
+          <option value="none">— нет предоплаты</option>
+          <option value="half">. 50%</option>
+          <option value="full">.. 100%</option>
+        </select>
+      </div>
+      <div class="field full"><label>Теги</label><div class="tags" id="fTags"></div></div>
+      <div class="field full"><label>Заметки</label><textarea id="fNotes" placeholder="Споты, белая половина…"></textarea></div>
+    </div>
+    <div class="actions">
+      <button class="act pri" id="bkSave"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-save" xlink:href="#i-save"/></svg>
+        Сохранить
+      </button>
+      <button class="act" id="bkSend1"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-send" xlink:href="#i-send"/></svg>
+        Сообщение об оплате
+      </button>
+      <button class="act" id="bkSend2"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check" xlink:href="#i-check"/></svg>
+        Подтверждение
+      </button>
+      <button class="act" id="bkICS"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cal" xlink:href="#i-cal"/></svg>
+        Календарь (.ics)
+      </button>
+      <button class="act" id="bkGCal"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cal-dots" xlink:href="#i-cal-dots"/></svg>
+        Google Calendar
+      </button>
+      <button class="act danger" id="bkDel" style="display:none"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-trash" xlink:href="#i-trash"/></svg>
+        Удалить
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings sheet -->
+<div class="overlay" id="ovSettings">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2>Настройки</h2>
+      <button class="ibtn" id="stClose" aria-label="Закрыть"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-x" xlink:href="#i-x"/></svg></button>
+    </div>
+    <div class="tabs" id="stTabs">
+      <button class="on" data-tab="studio">Студия</button>
+      <button data-tab="halls">Залы</button>
+      <button data-tab="pay">Реквизиты</button>
+      <button data-tab="msg">Сообщения</button>
+      <button data-tab="tags">Теги</button>
+      <button data-tab="data">Данные</button>
+    </div>
+    <div id="stBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ========== Defaults ========== */
+const DEF = {
+  studio: {
+    name: "Фотостудия Томсон",
+    address: "Ул. Красноармейская, 101а",
+    floor: "3 этаж",
+    rules: "http://томсон.рф/pravila_i_cena",
+    find: "http://томсон.рф/kak-najti",
+    holder: "Алексей Геннадьевич Н."
+  },
+  pay: {
+    tinkoff: "2200700146125280",
+    sber: "2202206203163030",
+    phone: "79234123330"
+  },
+  halls: [
+    { id:"sphere", name:"Сфера", office:"311",
+      prices:[[9,1500],[15,1700],[30,1900]],
+      shoe:"👞 Подготовьте чистую сменную обувь\n (у нас можно ходить босиком) подошву необходимо заклеить малярным/бумажным скотчем. Вы можете сделать это заранее дома или в студии (малярный скотч предоставляется).\nМы просим заклеивать только черную подошву, так как она оставляет следы на поверхности циклорамы, даже если обувь новая.",
+      confShoe:"👟 Пожалуйста, подготовьте чистую сменную обувь(можно босиком).\nДля съёмок на циклораме, цветную/черную подошву обуви, необходимо заклеить прозрачным или бумажным скотчем. Вы можете сделать это заранее дома или в студии (бумажный скотч предоставляется).\nобувь может оставляет следы на поверхности циклорамы, даже если она новая.",
+      confExtra:"Студийный час 55 минут.\nВы заходите ровно в забронированное время и выходите за 5 минут до его окончания, оставшиеся 5 минут отводятся на сдачу/приемку помещения и подготовку зала для следующих клиентов.\nПодготовка фонов оборудования моделей, одежды, обуви, а также переодевание является частью съемочного процесса."
+    },
+    { id:"edison", name:"Эдисон", office:"305",
+      prices:[[9,1600],[15,1800],[30,2000]],
+      shoe:"👞 Подготовьте чистую сменную обувь\n (у нас можно ходить босиком)",
+      confShoe:"👟 Пожалуйста, подготовьте чистую сменную обувь(можно босиком) Подошва должна быть помыта или хорошо протерта.",
+      confExtra:"Студийный час 55 минут\nВы заходите ровно в забронированное время и выходите за 5 минут до его окончания, оставшиеся 5 минут отводятся на осмотр помещения и подготовку зала для следующих клиентов.\nПодготовка фонов и оборудования является частью съемочного процесса. Подготовка моделей, одежды, а также переодевание, также входит в студийный час 55 минут."
+    },
+    { id:"vegas", name:"Вегас", office:"304",
+      prices:[[5,1300],[10,1500],[15,3000]],
+      shoe:"👞 Подготовьте чистую сменную обувь\n (у нас можно ходить босиком)\nВ Зале Вегас нельзя танцевать в обуви на каблуках\nОбязательно ознакомьесь с нашими правилами.",
+      confShoe:"👟 Пожалуйста, подготовьте чистую сменную обувь(можно босиком) Подошва должна быть помыта или хорошо протерта.",
+      confExtra:"Студийный час 55 минут\nВы заходите ровно в забронированное время и выходите за 5 минут до его окончания, оставшиеся 5 минут отводятся на осмотр помещения и подготовку зала для следующих клиентов.\nПодготовка фонов и оборудования является частью съемочного процесса. Подготовка моделей, одежды, а также переодевание, также входит в студийный час 55 минут."
+    }
+  ],
+  tags: ["💃","🔦","🧑‍🎓","❗️","◾️","🌈","⛺️","📸","🪩","👰","🐕","🐈","🍕","🫖","🎉","📽️","⏰","👶🏻","🎤"],
+  messages: { first:"", confirm:"" }
+};
+
+let cfg = load("tomson_cfg", DEF);
+let bookings = load("tomson_bk", []);
+let hallId = cfg.halls[0]?.id || "sphere";
+let view = "month";
+let cursor = new Date();
+let editId = null;
+let selTags = [];
+
+function load(k, d) {
+  try { const v = JSON.parse(localStorage.getItem(k)); return v ?? structuredClone(d); }
+  catch { return structuredClone(d); }
+}
+function save() {
+  localStorage.setItem("tomson_cfg", JSON.stringify(cfg));
+  localStorage.setItem("tomson_bk", JSON.stringify(bookings));
+}
+function $(id){ return document.getElementById(id); }
+function iso(d){ return d.toISOString().slice(0,10); }
+function hall(){ return cfg.halls.find(h => h.id === hallId) || cfg.halls[0]; }
+function money(n){ return new Intl.NumberFormat("ru-RU").format(n) + " ₽"; }
+function priceOf(h, g){
+  for (const [max, p] of h.prices) if (g <= max) return p;
+  return h.prices.at(-1)?.[1] || 0;
+}
+function payCls(p){ return p === "full" ? "full" : p === "half" ? "half" : "none"; }
+function paySym(p){ return p === "full" ? ".." : p === "half" ? "." : "-"; }
+function toast(m){
+  const t = $("toast"); t.textContent = m; t.classList.add("show");
+  clearTimeout(window.__t); window.__t = setTimeout(() => t.classList.remove("show"), 2200);
+}
+function esc(s){ return String(s??"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ========== Phone helpers ========== */
+function normPhone(r){
+  let p = (r||"").replace(/\D/g,"");
+  if (p.startsWith("8") && p.length===11) p = "7"+p.slice(1);
+  if (p.length===10) p = "7"+p;
+  return p;
+}
+function fmtPhone(r){
+  const p = normPhone(r);
+  if (p.length===11 && p[0]==="7")
+    return `+7 (${p.slice(1,4)}) ${p.slice(4,7)}-${p.slice(7,9)}-${p.slice(9)}`;
+  return r || "";
+}
+
+/* ========== Render halls ========== */
+function renderHalls(){
+  $("halls").innerHTML = cfg.halls.map(h =>
+    `<button class="hall ${h.id===hallId?"on":""}" data-id="${h.id}"><b>${esc(h.name)}</b><span>офис ${esc(h.office)}</span></button>`
+  ).join("");
+  $("halls").querySelectorAll(".hall").forEach(el => {
+    el.onclick = () => { hallId = el.dataset.id; renderHalls(); render(); };
+  });
+}
+
+/* ========== Calendar ========== */
+function render(){
+  renderHalls();
+  if (view === "month") renderMonth(); else renderDay();
+}
+function renderMonth(){
+  const y = cursor.getFullYear(), m = cursor.getMonth();
+  $("dateTitle").textContent = new Intl.DateTimeFormat("ru-RU",{month:"long",year:"numeric"}).format(cursor).replace(/^./,c=>c.toUpperCase());
+  const first = new Date(y,m,1), start = (first.getDay()+6)%7, days = new Date(y,m+1,0).getDate();
+  let html = '<div class="cal"><div class="mgrid">';
+  ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].forEach(d => html += `<div class="dow">${d}</div>`);
+  for (let i=0;i<start;i++) html += `<div class="day muted"></div>`;
+  const today = iso(new Date());
+  for (let d=1;d<=days;d++){
+    const key = iso(new Date(y,m,d));
+    const bs = bookings.filter(b => b.hallId===hallId && b.date===key);
+    html += `<div class="day ${key===today?"today":""}" data-date="${key}">
+      <div class="daynum">${d}</div>
+      <div class="dots">${bs.slice(0,5).map(b=>`<span class="dot ${payCls(b.pay)}"></span>`).join("")}</div>
+    </div>`;
+  }
+  html += "</div></div>";
+  $("calendar").innerHTML = html;
+  $("calendar").querySelectorAll(".day[data-date]").forEach(el => {
+    el.onclick = () => openBooking(el.dataset.date);
+  });
+}
+function renderDay(){
+  const key = iso(cursor);
+  $("dateTitle").textContent = new Intl.DateTimeFormat("ru-RU",{weekday:"long",day:"numeric",month:"long"}).format(cursor).replace(/^./,c=>c.toUpperCase());
+  const bs = bookings.filter(b => b.hallId===hallId && b.date===key)
+    .sort((a,b) => a.start.localeCompare(b.start));
+  let html = '<div class="cal"><div class="dayview"><div class="times">';
+  for (let h=8;h<=25;h++) html += `<div class="time">${String(h%24).padStart(2,"0")}:00</div>`;
+  html += '</div><div class="timeline">';
+  if (!bs.length) html += '<div class="empty" style="position:absolute;inset:40px 0 0;display:flex;flex-direction:column;align-items:center;gap:10px"><svg width="36" height="36" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cal" xlink:href="#i-cal"/></svg><span>Нет броней</span></div>';
+  bs.forEach(b => {
+    const [sh,sm] = b.start.split(":").map(Number);
+    const [eh,em] = b.end.split(":").map(Number);
+    const top = ((sh*60+sm) - 8*60) * (56/60);
+    const hgt = Math.max(44, ((eh*60+em) - (sh*60+sm)) * (56/60));
+    const tags = (b.tags||[]).join("");
+    html += `<div class="bitem ${payCls(b.pay)}" style="top:${top}px;height:${hgt}px" data-id="${b.id}">
+      <strong>${paySym(b.pay)}${tags} ${esc(b.name)}</strong>
+      <small>${b.start}–${b.end} · ${b.guests||"?"} чел.</small>
+    </div>`;
+  });
+  html += "</div></div></div>";
+  $("calendar").innerHTML = html;
+  $("calendar").querySelectorAll(".bitem").forEach(el => {
+    el.onclick = () => openBooking(null, el.dataset.id);
+  });
+}
+
+/* ========== Booking sheet ========== */
+function openBooking(date, id){
+  editId = id || null;
+  const b = id ? bookings.find(x => x.id === id) : null;
+  $("bkTitle").textContent = b ? "Бронь" : "Новая бронь";
+  $("fName").value = b?.name || "";
+  $("fPhone").value = b?.phone || "";
+  $("fDate").value = b?.date || date || iso(cursor);
+  $("fStart").value = b?.start || "17:00";
+  $("fEnd").value = b?.end || "18:00";
+  $("fGuests").value = b?.guests || 1;
+  $("fMsg").value = b?.messenger || "Telegram";
+  $("fPay").value = b?.pay || "none";
+  $("fNotes").value = b?.notes || "";
+  selTags = [...(b?.tags || [])];
+  renderTags();
+  $("bkDel").style.display = b ? "" : "none";
+  $("ovBooking").classList.add("show");
+}
+function renderTags(){
+  $("fTags").innerHTML = cfg.tags.map(e =>
+    `<button type="button" class="tag ${selTags.includes(e)?"on":""}" data-e="${e}">${e}</button>`
+  ).join("");
+  $("fTags").querySelectorAll(".tag").forEach(el => {
+    el.onclick = () => {
+      const e = el.dataset.e;
+      if (selTags.includes(e)) selTags = selTags.filter(x => x !== e);
+      else selTags.push(e);
+      renderTags();
+    };
+  });
+}
+function closeBooking(){ $("ovBooking").classList.remove("show"); }
+
+function saveBooking(){
+  const h = hall();
+  const data = {
+    id: editId || (crypto.randomUUID?.() || String(Date.now())),
+    hallId,
+    name: $("fName").value.trim(),
+    phone: $("fPhone").value.trim(),
+    date: $("fDate").value,
+    start: $("fStart").value,
+    end: $("fEnd").value,
+    guests: +$("fGuests").value || 1,
+    messenger: $("fMsg").value,
+    pay: $("fPay").value,
+    tags: [...selTags],
+    notes: $("fNotes").value,
+    price: priceOf(h, +$("fGuests").value || 1)
+  };
+  if (!data.name || !data.date) { toast("Укажите имя и дату"); return; }
+  const clash = bookings.find(b =>
+    b.hallId === data.hallId && b.date === data.date && b.id !== data.id &&
+    data.start < b.end && data.end > b.start
+  );
+  if (clash && !confirm("В это время уже есть бронь. Сохранить всё равно?")) return;
+  const i = bookings.findIndex(x => x.id === data.id);
+  if (i >= 0) bookings[i] = data; else bookings.push(data);
+  editId = data.id;
+  save();
+  toast("Сохранено");
+  render();
+  $("bkDel").style.display = "";
+}
+
+function deleteBooking(){
+  if (!editId || !confirm("Удалить бронь?")) return;
+  bookings = bookings.filter(x => x.id !== editId);
+  save(); closeBooking(); render(); toast("Удалено");
+}
+
+function cur(){ return bookings.find(x => x.id === editId); }
+
+/* ========== Messages ========== */
+function cardsBlock(){
+  return `Карта Тинькофф:\n${cfg.pay.tinkoff}\nКарта Сбербанк:\n${cfg.pay.sber}\nПо номеру:\n ${cfg.pay.phone}\nДержатель - ${cfg.studio.holder}`;
+}
+function buildFirst(b){
+  if (cfg.messages.first) return interp(cfg.messages.first, b);
+  const h = cfg.halls.find(x => x.id === b.hallId) || hall();
+  const date = new Date(b.date+"T12:00").toLocaleDateString("ru-RU");
+  const isVegas = h.id === "vegas";
+  if (isVegas) {
+    return `Фотостудия Томсон
+Зал "${h.name}" ${h.office} офис
+Мы ждём Вас
+${date}
+с ${b.start} до ${b.end}
+Для подтверждения брони, обязательно пришлите чек в этот диалог.
+*Бронь автоматически подтвердится*
+(Чек должен содержать информацию о переводе, дату и номер операции)
+*Предоплата 100%*
+Стоимость:
+${fmtPrices(h)}
+🔴подробные ПРАВИЛА и ЦЕНЫ тут:
+👉${cfg.studio.rules}
+..........................................................
+${cardsBlock()}
+❗️Внося предоплату Вы соглашаетесь с правилами фотостудии
+ВАЖНО:
+Перенос или отмена возможна не позднее 48 часов до времени брони.
+При отмене позднее предоплата сгорает.
+Кол-во гостей ограничено, подробнее в наших правилах, на сайте студии.
+${h.shoe}
+Адрес и как нас найти:
+${cfg.studio.find}
+${cfg.studio.address}
+${cfg.studio.floor}, оф. ${h.office}
+❗️Сообщите нам, что передумали, даже если не внесёте предоплату.`;
+  }
+  return `Фотостудия Томсон
+Зал "${h.name}" ${h.office} офис
+Мы ждём Вас
+${date}
+с ${b.start} до ${b.end}
+Для подтверждения брони, обязательно пришлите чек в этот диалог.
+*Бронь автоматически подтвердится*
+(Чек должен содержать информацию о переводе, дату и номер операции)
+*Предоплата 100%*
+Стоимость:
+${fmtPrices(h)}
+❗️Внося предоплату Вы соглашаетесь с *ПРАВИЛАМИ и ЦЕНАМИ* фотостудии
+${cfg.studio.rules}
+...................................................
+${cardsBlock()}
+ВАЖНО:
+Перенос возможен не позднее 48 часов до времени брони.
+При отмене позднее предоплата сгорает.
+${h.shoe}
+*Адрес и как нас найти:*
+${cfg.studio.find}
+${cfg.studio.address}
+${cfg.studio.floor}, оф. ${h.office}
+❗️Сообщите нам, что передумали, даже если не внесёте предоплату.
+Мы не снимаем бронь без предупреждения.`;
+}
+function buildConfirm(b){
+  if (cfg.messages.confirm) return interp(cfg.messages.confirm, b);
+  const h = cfg.halls.find(x => x.id === b.hallId) || hall();
+  return `✅Бронь подтверждена.
+${h.confExtra}
+${h.confShoe}
+❗️Внося предоплату Вы соглашаетесь с ПРАВИЛАМИ и ЦЕНАМИ фотостудии
+${cfg.studio.rules}
+ВАЖНО: Перенос возможен не позднее 48 часов до времени брони.
+При отмене позднее предоплата сгорает.
+📍Адрес и как нас найти:
+${cfg.studio.find}
+${cfg.studio.address}
+${cfg.studio.floor}, ${h.office} офис, зал ${h.name}`;
+}
+function fmtPrices(h){
+  return h.prices.map(([max,p],i) => {
+    const prev = i === 0 ? 1 : h.prices[i-1][0]+1;
+    return `${prev}-${max} чел/час ${p}₽`;
+  }).join("\n");
+}
+function interp(tpl, b){
+  const h = cfg.halls.find(x => x.id === b.hallId) || hall();
+  return tpl
+    .replaceAll("{{имя}}", b.name)
+    .replaceAll("{{телефон}}", b.phone)
+    .replaceAll("{{зал}}", h.name)
+    .replaceAll("{{офис}}", h.office)
+    .replaceAll("{{дата}}", b.date)
+    .replaceAll("{{начало}}", b.start)
+    .replaceAll("{{конец}}", b.end)
+    .replaceAll("{{гостей}}", b.guests)
+    .replaceAll("{{стоимость}}", money(b.price))
+    .replaceAll("{{адрес}}", cfg.studio.address)
+    .replaceAll("{{правила}}", cfg.studio.rules)
+    .replaceAll("{{как_найти}}", cfg.studio.find);
+}
+
+function sendMsg(type){
+  let b = cur();
+  if (!b) { saveBooking(); b = cur(); }
+  if (!b) { toast("Сначала сохраните бронь"); return; }
+  const text = type === "first" ? buildFirst(b) : buildConfirm(b);
+  const phone = normPhone(b.phone);
+  if (!phone || phone.length < 11) { toast("Укажите телефон"); return; }
+  const enc = encodeURIComponent(text);
+  if (b.messenger === "WhatsApp") window.open(`https://wa.me/${phone}?text=${enc}`, "_blank");
+  else if (b.messenger === "Telegram") window.open(`https://t.me/+${phone}?text=${enc}`, "_blank");
+  else {
+    navigator.clipboard.writeText(text).then(() => {
+      toast("Скопировано — откройте MAX");
+      setTimeout(() => { location.href = "https://max.ru"; }, 400);
+    });
+  }
+}
+
+/* ========== Calendar export ========== */
+function calTitle(b){
+  const tags = (b.tags||[]).join("");
+  return `${tags}${paySym(b.pay)}${b.name} ${fmtPhone(b.phone)}`;
+}
+function toICSDate(s){ return s.replace(/[-:]/g,"").slice(0,15); }
+function addICS(){
+  let b = cur();
+  if (!b) { saveBooking(); b = cur(); }
+  if (!b) return;
+  const h = cfg.halls.find(x => x.id === b.hallId) || hall();
+  const title = calTitle(b);
+  const loc = `${cfg.studio.address}, ${cfg.studio.floor}, оф. ${h.office}, зал ${h.name}`;
+  const desc = [`Зал: ${h.name}`,`Гостей: ${b.guests}`,b.notes?`Заметки: ${b.notes}`:"",`Статус: ${paySym(b.pay)}`,``,cfg.studio.find,cfg.studio.rules].filter(Boolean).join("\\n");
+  const uid = `tomson-${b.id}@studio`;
+  const ics = [
+    "BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Томсон//RU","CALSCALE:GREGORIAN","METHOD:PUBLISH",
+    "BEGIN:VTIMEZONE","TZID:Asia/Tomsk",
+    "BEGIN:STANDARD","TZOFFSETFROM:+0700","TZOFFSETTO:+0700","TZNAME:+07","DTSTART:19700101T000000","END:STANDARD",
+    "END:VTIMEZONE","BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${toICSDate(new Date().toISOString().replace(/\.\d{3}Z$/,""))}Z`,
+    `DTSTART;TZID=Asia/Tomsk:${toICSDate(b.date+"T"+b.start+":00")}`,
+    `DTEND;TZID=Asia/Tomsk:${toICSDate(b.date+"T"+b.end+":00")}`,
+    `SUMMARY:${title}`,
+    `LOCATION:${loc}`,
+    `DESCRIPTION:${desc}`,
+    "STATUS:CONFIRMED","END:VEVENT","END:VCALENDAR"
+  ].join("\r\n");
+  const blob = new Blob([ics], {type:"text/calendar;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `Томсон_${h.name}_${b.date}.ics`;
+  a.click();
+  toast("Файл .ics создан");
+}
+function addGCal(){
+  let b = cur();
+  if (!b) { saveBooking(); b = cur(); }
+  if (!b) return;
+  const h = cfg.halls.find(x => x.id === b.hallId) || hall();
+  const title = encodeURIComponent(calTitle(b));
+  const loc = encodeURIComponent(`${cfg.studio.address}, оф. ${h.office}, ${h.name}`);
+  const details = encodeURIComponent([`Зал: ${h.name}`,`Гостей: ${b.guests}`,b.notes||""].filter(Boolean).join("\n"));
+  const s = toICSDate(b.date+"T"+b.start+":00");
+  const e = toICSDate(b.date+"T"+b.end+":00");
+  window.open(`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${s}/${e}&details=${details}&location=${loc}&ctz=Asia/Tomsk`,"_blank");
+}
+
+/* ========== Settings ========== */
+function openSettings(){ settingsTab("studio"); $("ovSettings").classList.add("show"); }
+function closeSettings(){ $("ovSettings").classList.remove("show"); }
+
+function settingsTab(tab){
+  $("stTabs").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  const body = $("stBody");
+  if (tab === "studio") {
+    body.innerHTML = `
+      ${sField("Название","st_name",cfg.studio.name)}
+      ${sField("Адрес","st_addr",cfg.studio.address)}
+      ${sField("Этаж","st_floor",cfg.studio.floor)}
+      ${sField("Правила (URL)","st_rules",cfg.studio.rules)}
+      ${sField("Как найти (URL)","st_find",cfg.studio.find)}
+      ${sField("Держатель","st_holder",cfg.studio.holder)}
+      <button class="act pri" style="margin-top:10px" id="svStudio">Сохранить</button>`;
+    $("svStudio").onclick = () => {
+      cfg.studio.name = $("st_name").value;
+      cfg.studio.address = $("st_addr").value;
+      cfg.studio.floor = $("st_floor").value;
+      cfg.studio.rules = $("st_rules").value;
+      cfg.studio.find = $("st_find").value;
+      cfg.studio.holder = $("st_holder").value;
+      save(); toast("Сохранено");
+    };
+  }
+  if (tab === "halls") {
+    body.innerHTML = `<div class="slist">${cfg.halls.map((h,i) =>
+      `<div class="sitem"><div><b>${esc(h.name)}</b><small>оф. ${esc(h.office)} · ${h.prices.map(p=>p[1]+"₽").join(" / ")}</small></div>
+       <button class="act" data-i="${i}">Изменить</button></div>`
+    ).join("")}</div>
+    <button class="act pri" style="margin-top:10px" id="addHall">Добавить зал</button>`;
+    body.querySelectorAll("[data-i]").forEach(btn => {
+      btn.onclick = () => editHall(+btn.dataset.i);
+    });
+    $("addHall").onclick = () => {
+      const name = prompt("Название зала"); if (!name) return;
+      const office = prompt("Офис","") || "";
+      cfg.halls.push({id:"h"+Date.now(),name,office,prices:[[9,1500],[15,1700],[30,1900]],shoe:"",confShoe:"",confExtra:""});
+      save(); settingsTab("halls"); renderHalls(); toast("Зал добавлен");
+    };
+  }
+  if (tab === "pay") {
+    body.innerHTML = `
+      ${sField("Тинькофф","pay_tink",cfg.pay.tinkoff)}
+      ${sField("Сбербанк","pay_sber",cfg.pay.sber)}
+      ${sField("Телефон (СБП)","pay_phone",cfg.pay.phone)}
+      <p class="hint">Одни реквизиты для всех залов. Подставляются в сообщения автоматически.</p>
+      <button class="act pri" style="margin-top:10px" id="svPay">Сохранить</button>`;
+    $("svPay").onclick = () => {
+      cfg.pay.tinkoff = $("pay_tink").value;
+      cfg.pay.sber = $("pay_sber").value;
+      cfg.pay.phone = $("pay_phone").value;
+      save(); toast("Реквизиты сохранены");
+    };
+  }
+  if (tab === "msg") {
+    body.innerHTML = `
+      <div class="sfield"><label>Сообщение до оплаты (пусто = шаблон по залу)</label>
+        <textarea id="msg1" style="min-height:160px">${esc(cfg.messages.first)}</textarea></div>
+      <div class="sfield"><label>Подтверждение (пусто = шаблон по залу)</label>
+        <textarea id="msg2" style="min-height:160px">${esc(cfg.messages.confirm)}</textarea></div>
+      <p class="hint">Переменные: {{имя}} {{телефон}} {{зал}} {{офис}} {{дата}} {{начало}} {{конец}} {{гостей}} {{стоимость}} {{адрес}} {{правила}} {{как_найти}}</p>
+      <button class="act pri" style="margin-top:10px" id="svMsg">Сохранить</button>`;
+    $("svMsg").onclick = () => {
+      cfg.messages.first = $("msg1").value;
+      cfg.messages.confirm = $("msg2").value;
+      save(); toast("Шаблоны сохранены");
+    };
+  }
+  if (tab === "tags") {
+    body.innerHTML = `<div class="slist">${cfg.tags.map((e,i) =>
+      `<div class="sitem"><div><b style="font-size:20px">${e}</b></div>
+       <button class="act danger" data-i="${i}">Удалить</button></div>`
+    ).join("")}</div>
+    <button class="act pri" style="margin-top:10px" id="addTag">Добавить тег</button>`;
+    body.querySelectorAll("[data-i]").forEach(btn => {
+      btn.onclick = () => {
+        cfg.tags.splice(+btn.dataset.i, 1);
+        save(); settingsTab("tags");
+      };
+    });
+    $("addTag").onclick = () => {
+      const e = prompt("Эмодзи тега"); if (!e) return;
+      cfg.tags.push(e.trim()); save(); settingsTab("tags");
+    };
+  }
+  if (tab === "data") {
+    body.innerHTML = `
+      <button class="act pri" id="expData">Экспорт JSON</button>
+      <button class="act danger" style="margin-top:8px" id="resetData">Сбросить всё</button>
+      <p class="hint" style="margin-top:12px">Экспорт сохраняет настройки и все брони. Полная синхронизация с Google Calendar API требует OAuth — в этой версии используется .ics и Google Template URL.</p>`;
+    $("expData").onclick = () => {
+      const blob = new Blob([JSON.stringify({cfg,bookings},null,2)],{type:"application/json"});
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "tomson-backup.json"; a.click();
+    };
+    $("resetData").onclick = () => {
+      if (!confirm("Сбросить настройки и все брони?")) return;
+      localStorage.removeItem("tomson_cfg");
+      localStorage.removeItem("tomson_bk");
+      location.reload();
+    };
+  }
+}
+function sField(label, id, val){
+  return `<div class="sfield"><label>${label}</label><input id="${id}" value="${esc(val)}"></div>`;
+}
+function editHall(i){
+  const h = cfg.halls[i];
+  const name = prompt("Название", h.name); if (name===null) return;
+  const office = prompt("Офис", h.office); if (office===null) return;
+  const prices = prompt("Цены (макс=цена через запятую)\nНапример: 9=1500,15=1700,30=1900",
+    h.prices.map(x => x.join("=")).join(","));
+  if (prices===null) return;
+  h.name = name; h.office = office;
+  h.prices = prices.split(",").map(x => x.split("=").map(Number)).filter(x => x.length===2 && !isNaN(x[1]));
+  save(); settingsTab("halls"); renderHalls(); toast("Зал обновлён");
+}
+
+/* ========== Events ========== */
+$("vMonth").onclick = () => { view="month"; $("vMonth").classList.add("on"); $("vDay").classList.remove("on"); render(); };
+$("vDay").onclick = () => { view="day"; $("vDay").classList.add("on"); $("vMonth").classList.remove("on"); render(); };
+$("btnToday").onclick = () => { cursor = new Date(); render(); };
+$("prev").onclick = () => { if(view==="month") cursor.setMonth(cursor.getMonth()-1); else cursor.setDate(cursor.getDate()-1); render(); };
+$("next").onclick = () => { if(view==="month") cursor.setMonth(cursor.getMonth()+1); else cursor.setDate(cursor.getDate()+1); render(); };
+$("btnNew").onclick = () => openBooking();
+$("btnSettings").onclick = openSettings;
+$("bkClose").onclick = closeBooking;
+$("stClose").onclick = closeSettings;
+$("bkSave").onclick = saveBooking;
+$("bkDel").onclick = deleteBooking;
+$("bkSend1").onclick = () => sendMsg("first");
+$("bkSend2").onclick = () => sendMsg("confirm");
+$("bkICS").onclick = addICS;
+$("bkGCal").onclick = addGCal;
+$("stTabs").querySelectorAll("button").forEach(b => {
+  b.onclick = () => settingsTab(b.dataset.tab);
+});
+$("ovBooking").addEventListener("click", e => { if (e.target === $("ovBooking")) closeBooking(); });
+$("ovSettings").addEventListener("click", e => { if (e.target === $("ovSettings")) closeSettings(); });
+
+/* SW */
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(()=>{});
+
+/* Init */
+render();
+</script>
+</body>
+</html>
