@@ -406,14 +406,15 @@ button{cursor:pointer}
       <button class="ibtn" id="bkClose" aria-label="Закрыть"><svg viewBox="0 0 24 24"><use href="#i-x"/></svg></button>
     </div>
     <div class="form">
+      <div class="field"><label>Зал</label><select id="fHall"></select></div>
+      <div class="field"><label>Дата</label><input id="fDate" type="date"></div>
       <div class="field"><label>Имя</label><input id="fName" placeholder="Анна" autocomplete="name"></div>
       <div class="field"><label>Телефон</label><input id="fPhone" type="tel" placeholder="+7 923 000-00-00" inputmode="tel"></div>
-      <div class="field"><label>Дата</label><input id="fDate" type="date"></div>
-      <div class="field"><label>Гостей</label><input id="fGuests" type="number" min="1" max="30" value="1" inputmode="numeric"></div>
       <div class="field"><label>Начало</label><input id="fStart" type="time" value="17:00"></div>
       <div class="field"><label>Окончание</label><input id="fEnd" type="time" value="18:00"></div>
-      <div class="field"><label>Мессенджер</label><select id="fMsg"><option>Telegram</option><option>WhatsApp</option><option>MAX</option></select></div>
+      <div class="field"><label>Гостей</label><input id="fGuests" type="number" min="1" max="30" value="1" inputmode="numeric"></div>
       <div class="field"><label>Оплата</label><select id="fPay"><option value="none">— нет предоплаты</option><option value="half">. 50%</option><option value="full">.. 100%</option></select></div>
+      <div class="field"><label>Мессенджер</label><select id="fMsg"><option>Telegram</option><option>WhatsApp</option><option>MAX</option></select></div>
       <div class="field full"><label>Теги</label><div class="tags" id="fTags"></div></div>
       <div class="field full"><label>Заметки</label><textarea id="fNotes" placeholder="Споты, белая половина…"></textarea></div>
     </div>
@@ -500,21 +501,16 @@ async function fetchGoogleCalendarEvents(hallKey, startDate, endDate) {
   }
 }
 
-async function loadGoogleEvents(forHall, forceAll = false) {
-  const hallsToLoad = forceAll ? cfg.halls : (forHall ? [cfg.halls.find(h=>h.id===forHall)] : [hall()]);
-  if (!hallsToLoad.length) return;
-  const y = cursor.getFullYear(), m = cursor.getMonth();
-  const start = new Date(y, m, 1);
-  const end = new Date(y, m + 1, 0, 23, 59, 59);
+async function loadGoogleEvents(hallIds, startDate, endDate) {
   let newGoogleEvents = [];
-  for (const h of hallsToLoad) {
-    const items = await fetchGoogleCalendarEvents(h.id, start, end);
+  for (const id of hallIds) {
+    const items = await fetchGoogleCalendarEvents(id, startDate, endDate);
     items.forEach(event => {
       const sDate = new Date(event.start);
       const eDate = new Date(event.end);
       newGoogleEvents.push({
         id: "g_" + event.id,
-        hallId: h.id,
+        hallId: id,
         name: event.summary,
         date: iso(sDate),
         start: sDate.toTimeString().slice(0, 5),
@@ -526,9 +522,11 @@ async function loadGoogleEvents(forHall, forceAll = false) {
     });
   }
   googleEvents = newGoogleEvents;
+
   if (view === "month") renderMonth();
   else if (view === "week") renderWeek();
   else renderDay();
+
   $("syncDot").classList.add("on");
   setTimeout(() => $("syncDot").classList.remove("on"), 1000);
 }
@@ -590,7 +588,13 @@ function save() {
   localStorage.setItem("tomson_bk", JSON.stringify(bookings));
 }
 function $(id){ return document.getElementById(id); }
-function iso(d){ return d.toISOString().slice(0,10); }
+
+// Исправлено: функция iso(d) теперь учитывает локальный часовой пояс
+function iso(d){ 
+  const offset = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - offset).toISOString().slice(0,10);
+}
+
 function hall(){ return cfg.halls.find(h => h.id === hallId) || cfg.halls[0]; }
 function money(n){ return new Intl.NumberFormat("ru-RU").format(n) + " ₽"; }
 function priceOf(h, g){
@@ -644,10 +648,36 @@ function renderHalls(){
 /* ========== Calendar ========== */
 function render(){
   renderHalls();
-  loadGoogleEvents(allHallsMode ? null : hallId);
-  if (view === "month") renderMonth();
-  else if (view === "week") renderWeek();
-  else renderDay();
+
+  const hallsToLoad = allHallsMode
+    ? cfg.halls.map(h => h.id)
+    : [hallId];
+
+  let startDate, endDate;
+  const y = cursor.getFullYear();
+  const m = cursor.getMonth();
+
+  if (view === "month") {
+    const firstDay = new Date(y, m, 1);
+    const lastDay = new Date(y, m + 1, 0);
+    const startDow = (firstDay.getDay() + 6) % 7;
+    startDate = new Date(y, m, 1 - startDow);
+    const endDow = (7 - (lastDay.getDay() + 6) % 7) % 7;
+    endDate = new Date(y, m + 1, endDow);
+    endDate.setHours(23, 59, 59, 999);
+  } else if (view === "week") {
+    startDate = getMonday(cursor);
+    startDate.setHours(0, 0, 0, 0);
+    endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate() + 6);
+    endDate.setHours(23, 59, 59, 999);
+  } else {
+    startDate = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate());
+    endDate = new Date(startDate);
+    endDate.setHours(23, 59, 59, 999);
+  }
+
+  loadGoogleEvents(hallsToLoad, startDate, endDate);
 }
 
 function getHallColor(hallId) {
@@ -659,20 +689,20 @@ function renderMonth(){
   const y = cursor.getFullYear(), m = cursor.getMonth();
   $("dateTitle").textContent = new Intl.DateTimeFormat("ru-RU",{month:"long",year:"numeric"}).format(cursor).replace(/^./,c=>c.toUpperCase());
   const first = new Date(y,m,1);
-  const startDayOfWeek = (first.getDay()+6)%7; // Пн=0
+  const startDayOfWeek = (first.getDay()+6)%7;
   const daysInMonth = new Date(y,m+1,0).getDate();
   const lastDayPrev = new Date(y,m,0).getDate();
   let html = '<div class="cal"><div class="mgrid">';
   ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].forEach((d,i) => {
     html += `<div class="dow ${i>=5?"weekend":""}">${d}</div>`;
   });
-  // Предыдущий месяц
+  
   for (let i=startDayOfWeek-1; i>=0; i--) {
     const day = lastDayPrev - i;
     const key = iso(new Date(y,m-1,day));
     html += `<div class="day outside" data-date="${key}"><div class="daynum">${day}</div></div>`;
   }
-  // Текущий месяц
+  
   const today = iso(new Date());
   const allBs = [...bookings, ...googleEvents];
   for (let d=1; d<=daysInMonth; d++){
@@ -687,7 +717,7 @@ function renderMonth(){
       <div class="dots">${bs.slice(0,6).map(b=>`<span class="dot ${payCls(b.pay)}" style="background:${getHallColor(b.hallId)}"></span>`).join("")}</div>
     </div>`;
   }
-  // Следующий месяц
+  
   const totalCells = startDayOfWeek + daysInMonth;
   const nextDays = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
   for (let d=1; d<=nextDays; d++){
@@ -745,11 +775,9 @@ function renderMultiDay(){
   html += '<div class="times" style="grid-row:2/-1">';
   for (let h=8; h<=25; h++) html += `<div class="time">${String(h%24).padStart(2,"0")}:00</div>`;
   html += '</div>';
-  // Заголовки колонок
   halls.forEach(h => {
     html += `<div class="hcol-head"><span class="swatch" style="background:${h.color}"></span>${esc(h.name)}</div>`;
   });
-  // Колонки таймлайнов
   halls.forEach(h => {
     html += `<div class="timeline-col" id="tl-${h.id}" data-hall="${h.id}"></div>`;
   });
@@ -762,7 +790,7 @@ function renderMultiDay(){
     bs.forEach(b => {
       const [sh,sm] = b.start.split(":").map(Number);
       const [eh,em] = b.end.split(":").map(Number);
-      const top = ((sh*60+sm) - 8*60) * (48/60); // 48px per hour
+      const top = ((sh*60+sm) - 8*60) * (48/60);
       const hgt = Math.max(44, ((eh*60+em) - (sh*60+sm)) * (48/60));
       const div = document.createElement("div");
       div.className = `bslot-multi ${payCls(b.pay)}`;
@@ -784,113 +812,131 @@ function renderWeek(){
   const start = getMonday(cursor);
   const end = new Date(start); end.setDate(start.getDate()+6);
   $("dateTitle").textContent = `${start.toLocaleDateString("ru-RU",{day:"numeric",month:"long"})} – ${end.toLocaleDateString("ru-RU",{day:"numeric",month:"long"})}`;
+  
   if (allHallsMode) {
     renderMultiWeek(start);
     return;
   }
+  
   const allBs = [...bookings, ...googleEvents].filter(b => b.hallId===hallId && b.date >= iso(start) && b.date <= iso(end));
   let html = `<div class="cal"><div class="week-scroll"><div class="wgrid">`;
-  html += '<div class="whour"></div>';
-  // Дни недели
+  
+  // Header row
+  html += '<div style="grid-column:1;grid-row:1"></div>';
   const today = iso(new Date());
   for (let i=0; i<7; i++){
     const d = new Date(start); d.setDate(start.getDate()+i);
     const key = iso(d);
-    html += `<div class="whead ${key===today?"today":""} ${d.getDay()%6===0?"weekend":""}"><span class="wd">${d.toLocaleDateString("ru-RU",{weekday:"short"}).replace(".","")}</span><span class="wn">${d.getDate()}</span></div>`;
+    html += `<div class="whead ${key===today?"today":""} ${d.getDay()%6===0?"weekend":""}" style="grid-row:1;grid-column:${i+2}">
+      <span class="wd">${d.toLocaleDateString("ru-RU",{weekday:"short"}).replace(".","")}</span>
+      <span class="wn">${d.getDate()}</span>
+    </div>`;
   }
-  // Часы
-  for (let h=8; h<=25; h++){
-    html += `<div class="whour">${String(h%24).padStart(2,"0")}:00</div>`;
-    for (let i=0; i<7; i++){
-      const d = new Date(start); d.setDate(start.getDate()+i);
-      const key = iso(d);
-      const weekend = d.getDay()%6===0 ? " weekend" : "";
-      html += `<div class="wcol${weekend}" id="wcol-${i}-${h}"></div>`;
-    }
+  
+  // Times column
+  html += `<div style="grid-column:1;grid-row:2;position:relative">`;
+  for(let h=8; h<=25; h++) html += `<div class="whour">${String(h%24).padStart(2,"0")}:00</div>`;
+  html += `</div>`;
+  
+  // Day columns (wcol) - только 7 штук
+  for (let i=0; i<7; i++){
+    const d = new Date(start); d.setDate(start.getDate()+i);
+    const weekend = d.getDay()%6===0 ? " weekend" : "";
+    html += `<div class="wcol${weekend}" id="wcol-${i}" style="grid-row:2;grid-column:${i+2};position:relative;"></div>`;
   }
+  
   html += '</div></div></div>';
   $("calendar").innerHTML = html;
-  // Заполнение событий
+
+  // Populate events and add long-press listener
   for (let i=0; i<7; i++){
     const d = new Date(start); d.setDate(start.getDate()+i);
     const key = iso(d);
     const bs = allBs.filter(b => b.date===key);
-    bs.forEach(b => {
-      const [sh,sm] = b.start.split(":").map(Number);
-      const [eh,em] = b.end.split(":").map(Number);
-      const top = ((sh*60+sm) - 8*60) * (40/60); // 40px per hour
-      const hgt = Math.max(30, ((eh*60+em) - (sh*60+sm)) * (40/60));
-      const col = document.getElementById(`wcol-${i}-${Math.floor(sh)}`);
-      if (col) {
+    const col = document.getElementById(`wcol-${i}`);
+    
+    if (col) {
+      bs.forEach(b => {
+        const [sh,sm] = b.start.split(":").map(Number);
+        const [eh,em] = b.end.split(":").map(Number);
+        const top = ((sh*60+sm) - 8*60) * (40/60);
+        const hgt = Math.max(30, ((eh*60+em) - (sh*60+sm)) * (40/60));
         const slot = document.createElement("div");
         slot.className = `wslot ${payCls(b.pay)}`;
         slot.style.cssText = `top:${top}px;height:${hgt}px;border-color:${getHallColor(b.hallId)}`;
         slot.innerHTML = `<strong>${paySym(b.pay)}${esc(b.name)}</strong><small>${b.start}–${b.end}</small>`;
-        slot.onclick = (e) => {
-          e.stopPropagation();
-          if (!b.id.startsWith("g_")) openBooking(null, b.id);
-        };
+        slot.onclick = (e) => { e.stopPropagation(); if (!b.id.startsWith("g_")) openBooking(null, b.id); };
         col.appendChild(slot);
-      }
-    });
-  }
-  // long press
-  for (let i=0; i<7; i++){
-    for (let h=8; h<=25; h++){
-      const col = document.getElementById(`wcol-${i}-${h}`);
-      if (col) {
-        col.style.position = "relative";
-        col.addEventListener("pointerdown", (e) => handleWeekLongPress(e, i, h, start));
-      }
+      });
+      // Listener
+      col.addEventListener("pointerdown", (e) => handleWeekLongPress(e, i, start, hallId));
     }
   }
 }
 
 function renderMultiWeek(start){
   const halls = cfg.halls;
-  let html = `<div class="cal"><div class="multi-halls"><div class="multi-grid" style="--hall-cols:${halls.length}">`;
-  html += '<div style="grid-column:1;grid-row:1/-1"></div>';
-  halls.forEach(h => html += `<div class="hcol-head" style="grid-column:span 7"><span class="swatch" style="background:${h.color}"></span>${esc(h.name)}</div>`);
-  // Строки часов
-  for (let h=8; h<=25; h++){
-    html += `<div class="whour">${String(h%24).padStart(2,"0")}:00</div>`;
-    halls.forEach(hall => {
-      for (let i=0; i<7; i++){
-        const d = new Date(start); d.setDate(start.getDate()+i);
-        const key = iso(d);
-        html += `<div class="wcol" id="mwcol-${hall.id}-${i}-${h}"></div>`;
-      }
-    });
-  }
+  // Увеличиваем сетку для каждого дня каждого зала (3 зала * 7 дней = 21 колонка)
+  let html = `<div class="cal"><div class="multi-halls"><div class="multi-grid" style="--hall-cols:${halls.length * 7}">`;
+  
+  // Row 1: Halls headers
+  html += '<div style="grid-column:1;grid-row:1/3"></div>';
+  halls.forEach((h, hIndex) => {
+    html += `<div class="hcol-head" style="grid-column:span 7"><span class="swatch" style="background:${h.color}"></span>${esc(h.name)}</div>`;
+  });
+
+  // Row 2: Days headers
+  halls.forEach((h, hIndex) => {
+    for(let i=0; i<7; i++){
+      const d = new Date(start); d.setDate(start.getDate()+i);
+      const todayCls = iso(d)===iso(new Date()) ? "today" : "";
+      const weekendCls = d.getDay()%6===0 ? "weekend" : "";
+      html += `<div class="whead ${todayCls} ${weekendCls}" style="grid-row:2">
+        <span class="wd">${d.toLocaleDateString("ru-RU",{weekday:"short"}).replace(".","")}</span>
+        <span class="wn">${d.getDate()}</span>
+      </div>`;
+    }
+  });
+
+  // Row 3: Times column
+  html += `<div style="grid-column:1;grid-row:3;position:relative">`;
+  for(let h=8; h<=25; h++) html += `<div class="whour">${String(h%24).padStart(2,"0")}:00</div>`;
+  html += `</div>`;
+
+  // Row 3: wcol for each day/hall
+  halls.forEach((hall, hIndex) => {
+    for(let i=0; i<7; i++){
+      const d = new Date(start); d.setDate(start.getDate()+i);
+      const weekend = d.getDay()%6===0 ? " weekend" : "";
+      html += `<div class="wcol${weekend}" id="mwcol-${hall.id}-${i}" style="grid-row:3;position:relative;"></div>`;
+    }
+  });
+
   html += '</div></div></div>';
   $("calendar").innerHTML = html;
+
+  // Populate events
   const allBs = [...bookings, ...googleEvents];
   halls.forEach(hall => {
-    for (let i=0; i<7; i++){
+    for(let i=0; i<7; i++){
       const d = new Date(start); d.setDate(start.getDate()+i);
       const key = iso(d);
       const bs = allBs.filter(b => b.hallId===hall.id && b.date===key);
-      bs.forEach(b => {
-        const [sh,sm] = b.start.split(":").map(Number);
-        const [eh,em] = b.end.split(":").map(Number);
-        const top = ((sh*60+sm) - 8*60) * (40/60);
-        const hgt = Math.max(30, ((eh*60+em) - (sh*60+sm)) * (40/60));
-        const col = document.getElementById(`mwcol-${hall.id}-${i}-${Math.floor(sh)}`);
-        if (col) {
+      const col = document.getElementById(`mwcol-${hall.id}-${i}`);
+      if(col) {
+        bs.forEach(b => {
+          const [sh,sm] = b.start.split(":").map(Number);
+          const [eh,em] = b.end.split(":").map(Number);
+          const top = ((sh*60+sm) - 8*60) * (40/60);
+          const hgt = Math.max(30, ((eh*60+em) - (sh*60+sm)) * (40/60));
           const slot = document.createElement("div");
           slot.className = `wslot ${payCls(b.pay)}`;
           slot.style.cssText = `top:${top}px;height:${hgt}px;border-color:${hall.color}`;
           slot.innerHTML = `<strong>${paySym(b.pay)}${esc(b.name)}</strong><small>${b.start}–${b.end}</small>`;
           slot.onclick = (e) => { e.stopPropagation(); if (!b.id.startsWith("g_")) openBooking(null, b.id); };
           col.appendChild(slot);
-        }
-      });
-      for (let h=8; h<=25; h++){
-        const col = document.getElementById(`mwcol-${hall.id}-${i}-${h}`);
-        if (col) {
-          col.style.position = "relative";
-          col.addEventListener("pointerdown", (e) => handleMultiWeekLongPress(e, i, h, hall.id, start));
-        }
+        });
+        col.addEventListener("pointerdown", (e) => handleWeekLongPress(e, i, start, hall.id));
       }
     }
   });
@@ -906,7 +952,8 @@ function getMonday(d) {
 function attachTimelineLongPress(containerId, date, hId) {
   const cont = document.getElementById(containerId);
   if (!cont) return;
-  cont.style.touchAction = "none";
+  // Высота строки разная в зависимости от режима (один зал или мульти)
+  const rowHeight = containerId === "timelineSingle" ? 56 : 48; 
   let pressTimer, ghostEl, startHour;
 
   const clear = () => {
@@ -918,30 +965,32 @@ function attachTimelineLongPress(containerId, date, hId) {
   cont.addEventListener("pointerdown", (e) => {
     const rect = cont.getBoundingClientRect();
     const y = e.clientY - rect.top + cont.scrollTop;
-    startHour = Math.max(8, Math.min(25, 8 + Math.floor(y / 48))); // 48px/h
+    startHour = Math.max(8, Math.min(25, 8 + Math.floor(y / rowHeight)));
     ghostEl = document.createElement("div");
     ghostEl.className = "ghost";
-    ghostEl.style.top = `${(startHour-8)*48}px`;
-    ghostEl.style.height = "48px";
+    ghostEl.style.top = `${(startHour-8)*rowHeight}px`;
+    ghostEl.style.height = `${rowHeight}px`;
     cont.appendChild(ghostEl);
+    
+    // Используем задержку: если начали скроллить - pointercancel отменит таймер
     pressTimer = setTimeout(() => {
-      ghostEl.classList.add("pressing");
-    }, 500);
+      if (ghostEl) ghostEl.classList.add("pressing");
+    }, 400); 
   });
 
   cont.addEventListener("pointermove", (e) => {
-    if (!ghostEl) return;
+    if (!ghostEl || !ghostEl.classList.contains("pressing")) return;
     const rect = cont.getBoundingClientRect();
     const y = e.clientY - rect.top + cont.scrollTop;
-    const endHour = Math.max(8, Math.min(25, 8 + Math.floor(y / 48)));
-    ghostEl.style.top = `${Math.min(startHour, endHour-8)*48}px`;
-    ghostEl.style.height = `${Math.abs(endHour - startHour)*48}px`;
+    const endHour = Math.max(8, Math.min(25, 8 + Math.floor(y / rowHeight)));
+    ghostEl.style.top = `${Math.min(startHour, endHour-8)*rowHeight}px`;
+    ghostEl.style.height = `${Math.max(1, Math.abs(endHour - startHour))*rowHeight}px`;
   });
 
   cont.addEventListener("pointerup", () => {
     clearTimeout(pressTimer);
     if (ghostEl && ghostEl.classList.contains("pressing")) {
-      openBooking(date, null, `${String(startHour).padStart(2,"0")}:00`);
+      openBooking(date, null, `${String(startHour).padStart(2,"0")}:00`, hId);
     }
     clear();
   });
@@ -949,21 +998,25 @@ function attachTimelineLongPress(containerId, date, hId) {
   cont.addEventListener("pointercancel", clear);
 }
 
-function handleWeekLongPress(e, dayIndex, hour, weekStart) {
+function handleWeekLongPress(e, dayIndex, weekStart, hId) {
+  const col = e.currentTarget;
+  const rect = col.getBoundingClientRect();
+  const y = e.clientY - rect.top + col.scrollTop;
+  const hour = Math.max(8, Math.min(25, 8 + Math.floor(y / 40)));
   const d = new Date(weekStart); d.setDate(weekStart.getDate()+dayIndex);
-  openBooking(iso(d), null, `${String(hour).padStart(2,"0")}:00`);
-}
-function handleMultiWeekLongPress(e, dayIndex, hour, hallId, weekStart) {
-  hallId = hallId;
-  const d = new Date(weekStart); d.setDate(weekStart.getDate()+dayIndex);
-  openBooking(iso(d), null, `${String(hour).padStart(2,"0")}:00`);
+  openBooking(iso(d), null, `${String(hour).padStart(2,"0")}:00`, hId);
 }
 
 /* ========== Booking sheet ========== */
-function openBooking(date, id, presetTime){
+function openBooking(date, id, presetTime, specificHallId){
   editId = id || null;
   const b = id ? bookings.find(x => x.id === id) : null;
   $("bkTitle").textContent = b ? "Бронь" : "Новая бронь";
+  
+  // Добавлен выбор зала
+  $("fHall").innerHTML = cfg.halls.map(h => `<option value="${h.id}">${h.name}</option>`).join("");
+  $("fHall").value = specificHallId || b?.hallId || hallId || cfg.halls[0]?.id;
+  
   $("fName").value = b?.name || "";
   $("fPhone").value = b?.phone || "";
   $("fDate").value = b?.date || date || iso(cursor);
@@ -978,6 +1031,7 @@ function openBooking(date, id, presetTime){
   $("bkDel").style.display = b ? "" : "none";
   $("ovBooking").classList.add("show");
 }
+
 function renderTags(){
   $("fTags").innerHTML = cfg.tags.map(e =>
     `<button type="button" class="tag ${selTags.includes(e)?"on":""}" data-e="${e}">${e}</button>`
@@ -994,10 +1048,12 @@ function renderTags(){
 function closeBooking(){ $("ovBooking").classList.remove("show"); }
 
 function saveBooking(){
-  const h = hall();
+  const selectedHallId = $("fHall").value;
+  const h = cfg.halls.find(x => x.id === selectedHallId) || hall();
+  
   const data = {
     id: editId || (crypto.randomUUID?.() || String(Date.now())),
-    hallId,
+    hallId: selectedHallId, // Использовать выбранный зал
     name: $("fName").value.trim(),
     phone: $("fPhone").value.trim(),
     date: $("fDate").value,
@@ -1010,12 +1066,17 @@ function saveBooking(){
     notes: $("fNotes").value,
     price: priceOf(h, +$("fGuests").value || 1)
   };
+  
   if (!data.name || !data.date) { toast("Укажите имя и дату"); return; }
-  const clash = bookings.find(b =>
+  
+  // Проверка конфликтов включая Google календарь
+  const allBs = [...bookings, ...googleEvents];
+  const clash = allBs.find(b =>
     b.hallId === data.hallId && b.date === data.date && b.id !== data.id &&
     data.start < b.end && data.end > b.start
   );
   if (clash && !confirm("В это время уже есть бронь. Сохранить всё равно?")) return;
+  
   const i = bookings.findIndex(x => x.id === data.id);
   if (i >= 0) bookings[i] = data; else bookings.push(data);
   editId = data.id;
@@ -1317,7 +1378,32 @@ $("next").onclick = () => {
 };
 $("btnNew").onclick = () => openBooking();
 $("btnSettings").onclick = openSettings;
-$("btnRefresh").onclick = () => { loadGoogleEvents(allHallsMode ? null : hallId, true); toast("Обновлено"); };
+$("btnRefresh").onclick = () => {
+  const hallsToLoad = allHallsMode ? cfg.halls.map(h => h.id) : [hallId];
+  let startDate, endDate;
+  const y = cursor.getFullYear(), m = cursor.getMonth();
+  if (view === "month") {
+    const firstDay = new Date(y, m, 1);
+    const lastDay = new Date(y, m+1, 0);
+    const startDow = (firstDay.getDay() + 6) % 7;
+    startDate = new Date(y, m, 1 - startDow);
+    const endDow = (7 - (lastDay.getDay() + 6) % 7) % 7;
+    endDate = new Date(y, m+1, endDow);
+    endDate.setHours(23,59,59,999);
+  } else if (view === "week") {
+    startDate = getMonday(cursor);
+    startDate.setHours(0,0,0,0);
+    endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate()+6);
+    endDate.setHours(23,59,59,999);
+  } else {
+    startDate = new Date(y, cursor.getMonth(), cursor.getDate());
+    endDate = new Date(startDate);
+    endDate.setHours(23,59,59,999);
+  }
+  loadGoogleEvents(hallsToLoad, startDate, endDate);
+  toast("Обновлено");
+};
 $("dateTitle").onclick = openPicker;
 $("bkClose").onclick = closeBooking;
 $("stClose").onclick = closeSettings;
@@ -1335,7 +1421,31 @@ $("ovSettings").addEventListener("click", e => { if (e.target === $("ovSettings"
 
 // Автосинхронизация каждые 5 минут
 if (syncTimer) clearInterval(syncTimer);
-syncTimer = setInterval(() => loadGoogleEvents(allHallsMode ? null : hallId), 300000);
+syncTimer = setInterval(() => {
+  const hallsToLoad = allHallsMode ? cfg.halls.map(h => h.id) : [hallId];
+  let startDate, endDate;
+  const y = cursor.getFullYear(), m = cursor.getMonth();
+  if (view === "month") {
+    const firstDay = new Date(y, m, 1);
+    const lastDay = new Date(y, m+1, 0);
+    const startDow = (firstDay.getDay() + 6) % 7;
+    startDate = new Date(y, m, 1 - startDow);
+    const endDow = (7 - (lastDay.getDay() + 6) % 7) % 7;
+    endDate = new Date(y, m+1, endDow);
+    endDate.setHours(23,59,59,999);
+  } else if (view === "week") {
+    startDate = getMonday(cursor);
+    startDate.setHours(0,0,0,0);
+    endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate()+6);
+    endDate.setHours(23,59,59,999);
+  } else {
+    startDate = new Date(y, cursor.getMonth(), cursor.getDate());
+    endDate = new Date(startDate);
+    endDate.setHours(23,59,59,999);
+  }
+  loadGoogleEvents(hallsToLoad, startDate, endDate);
+}, 300000);
 
 /* SW */
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(()=>{});
