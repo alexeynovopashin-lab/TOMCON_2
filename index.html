@@ -466,38 +466,101 @@ button{cursor:pointer}
 </div>
 
 <script>
-/* ========== Google Calendar Integration Config ========== */
-const GOOGLE_CALENDARS = {
-  sphere: "novopashin.alexey@gmail.com",
-  edison: "tg8qmfvdq63kla43ru7i9c2dl8@group.calendar.google.com",
-  vegas: "fk2v3u4en0avlo5799tmvopt7o@group.calendar.google.com"
-};
-const WORKER_URL = "https://tomson-auth.alexeynovopashin.workers.dev";
+/* ========== Calendar ========== */
+function render(){
+  renderHalls();
+  loadGoogleEvents(allHallsMode ? null : hallId);
+  if (view === "month") renderMonth();
+  else if (view === "week") renderWeek();
+  else renderDay();
+}
 
-let googleEvents = [];
-let syncTimer = null;
+function getHallColor(hallId) {
+  return cfg.halls.find(h => h.id === hallId)?.color || "#9b9da3";
+}
 
-async function fetchGoogleCalendarEvents(hallKey, startDate, endDate) {
-  const calendarId = GOOGLE_CALENDARS[hallKey];
-  if (!calendarId) return [];
-  const timeMin = startDate.toISOString();
-  const timeMax = endDate.toISOString();
-  const url = `${WORKER_URL}/calendar/calendars/${encodeURIComponent(calendarId)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`;
-  try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
-    const data = await response.json();
-    return (data.items || []).map(event => ({
-      id: event.id,
-      summary: event.summary || "Без названия",
-      description: event.description || "",
-      start: new Date(event.start.dateTime || event.start.date),
-      end: new Date(event.end.dateTime || event.end.date)
-    }));
-  } catch (err) {
-    console.error(`Ошибка загрузки календаря (${hallKey}):`, err);
-    return [];
+/* --- Month --- */
+function renderMonth(){
+  const y = cursor.getFullYear(), m = cursor.getMonth();
+  $("dateTitle").textContent = new Intl.DateTimeFormat("ru-RU",{month:"long",year:"numeric"}).format(cursor).replace(/^./,c=>c.toUpperCase());
+  const first = new Date(y,m,1);
+  const startDayOfWeek = (first.getDay()+6)%7; // Пн=0
+  const daysInMonth = new Date(y,m+1,0).getDate();
+  const lastDayPrev = new Date(y,m,0).getDate();
+  let html = '<div class="cal"><div class="mgrid">';
+  ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].forEach((d,i) => {
+    html += `<div class="dow ${i>=5?"weekend":""}">${d}</div>`;
+  });
+  // Предыдущий месяц
+  for (let i=startDayOfWeek-1; i>=0; i--) {
+    const day = lastDayPrev - i;
+    const key = iso(new Date(y,m-1,day));
+    html += `<div class="day outside" data-date="${key}"><div class="daynum">${day}</div></div>`;
   }
+  // Текущий месяц
+  const today = iso(new Date());
+  const allBs = [...bookings, ...googleEvents];
+  for (let d=1; d<=daysInMonth; d++){
+    const key = iso(new Date(y,m,d));
+    const dayOfWeek = new Date(y,m,d).getDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const bs = allHallsMode
+      ? allBs.filter(b => b.date===key)
+      : allBs.filter(b => b.hallId===hallId && b.date===key);
+    html += `<div class="day ${key===today?"today":""} ${isWeekend?"weekend":""}" data-date="${key}">
+      <div class="daynum">${d}</div>
+      <div class="dots">${bs.slice(0,6).map(b=>`<span class="dot ${payCls(b.pay)}" style="background:${getHallColor(b.hallId)}"></span>`).join("")}</div>
+    </div>`;
+  }
+  // Следующий месяц
+  const totalCells = startDayOfWeek + daysInMonth;
+  const nextDays = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+  for (let d=1; d<=nextDays; d++){
+    const key = iso(new Date(y,m+1,d));
+    html += `<div class="day outside" data-date="${key}"><div class="daynum">${d}</div></div>`;
+  }
+  html += "</div></div>";
+  $("calendar").innerHTML = html;
+  $("calendar").querySelectorAll(".day[data-date]").forEach(el => {
+    el.onclick = () => openBooking(el.dataset.date);
+  });
+}
+
+/* --- Day --- */
+function renderDay(){
+  const key = iso(cursor);
+  $("dateTitle").textContent = new Intl.DateTimeFormat("ru-RU",{weekday:"long",day:"numeric",month:"long"}).format(cursor).replace(/^./,c=>c.toUpperCase());
+  if (allHallsMode) {
+    renderMultiDay();
+    return;
+  }
+  const allBs = [...bookings, ...googleEvents].filter(b => b.hallId===hallId && b.date===key)
+    .sort((a,b) => a.start.localeCompare(b.start));
+  let html = '<div class="cal"><div class="dayview"><div class="times">';
+  for (let h=8; h<=25; h++) html += `<div class="time">${String(h%24).padStart(2,"0")}:00</div>`;
+  html += '</div><div class="timeline" id="timelineSingle">';
+  if (!allBs.length) html += '<div class="empty" style="position:absolute;inset:40px 0 0;display:flex;flex-direction:column;align-items:center;gap:10px"><svg width="36" height="36" viewBox="0 0 24 24"><use href="#i-cal"/></svg><span>Нет броней</span></div>';
+  allBs.forEach(b => {
+    const [sh,sm] = b.start.split(":").map(Number);
+    const [eh,em] = b.end.split(":").map(Number);
+    const top = ((sh*60+sm) - 8*60) * (56/60);
+    const hgt = Math.max(44, ((eh*60+em) - (sh*60+sm)) * (56/60));
+    const tags = (b.tags||[]).join("");
+    html += `<div class="bitem ${payCls(b.pay)}" style="top:${top}px;height:${hgt}px;border-color:${getHallColor(b.hallId)}" data-id="${b.id}">
+      <strong>${paySym(b.pay)}${tags} ${esc(b.name)}</strong>
+      <small>${b.start}–${b.end} · ${b.guests||"?"} чел.</small>
+    </div>`;
+  });
+  html += "</div></div></div>";
+  $("calendar").innerHTML = html;
+  attachTimelineLongPress("timelineSingle", key, hallId);
+  $("calendar").querySelectorAll(".bitem").forEach(el => {
+    el.onclick = (e) => {
+      e.stopPropagation();
+      if (el.dataset.id.startsWith("g_")) return;
+      openBooking(null, el.dataset.id);
+    };
+  });
 }
 
 async function loadGoogleEvents(hallIds, startDate, endDate) {
