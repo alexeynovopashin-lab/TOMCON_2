@@ -500,21 +500,17 @@ async function fetchGoogleCalendarEvents(hallKey, startDate, endDate) {
   }
 }
 
-async function loadGoogleEvents(forHall, forceAll = false) {
-  const hallsToLoad = forceAll ? cfg.halls : (forHall ? [cfg.halls.find(h=>h.id===forHall)] : [hall()]);
-  if (!hallsToLoad.length) return;
-  const y = cursor.getFullYear(), m = cursor.getMonth();
-  const start = new Date(y, m, 1);
-  const end = new Date(y, m + 1, 0, 23, 59, 59);
+async function loadGoogleEvents(hallIds, startDate, endDate) {
+  // hallIds – массив id залов; startDate/endDate – объекты Date
   let newGoogleEvents = [];
-  for (const h of hallsToLoad) {
-    const items = await fetchGoogleCalendarEvents(h.id, start, end);
+  for (const id of hallIds) {
+    const items = await fetchGoogleCalendarEvents(id, startDate, endDate);
     items.forEach(event => {
       const sDate = new Date(event.start);
       const eDate = new Date(event.end);
       newGoogleEvents.push({
         id: "g_" + event.id,
-        hallId: h.id,
+        hallId: id,
         name: event.summary,
         date: iso(sDate),
         start: sDate.toTimeString().slice(0, 5),
@@ -526,6 +522,7 @@ async function loadGoogleEvents(forHall, forceAll = false) {
     });
   }
   googleEvents = newGoogleEvents;
+  // Рендер после загрузки
   if (view === "month") renderMonth();
   else if (view === "week") renderWeek();
   else renderDay();
