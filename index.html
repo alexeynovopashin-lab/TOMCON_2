@@ -410,8 +410,8 @@ button{cursor:pointer}
       <div class="field"><label>Дата</label><input id="fDate" type="date"></div>
       <div class="field"><label>Имя</label><input id="fName" placeholder="Анна" autocomplete="name"></div>
       <div class="field"><label>Телефон</label><input id="fPhone" type="tel" placeholder="+7 923 000-00-00" inputmode="tel"></div>
-      <div class="field"><label>Начало</label><input id="fStart" type="time" value="17:00"></div>
-      <div class="field"><label>Окончание</label><input id="fEnd" type="time" value="18:00"></div>
+      <div class="field"><label>Начало</label><input id="fStart" type="time" value="17:00" step="3600"></div>
+      <div class="field"><label>Окончание</label><input id="fEnd" type="time" value="18:00" step="3600"></div>
       <div class="field"><label>Гостей</label><input id="fGuests" type="number" min="1" max="30" value="1" inputmode="numeric"></div>
       <div class="field"><label>Оплата</label><select id="fPay"><option value="none">— нет предоплаты</option><option value="half">. 50%</option><option value="full">.. 100%</option></select></div>
       <div class="field"><label>Мессенджер</label><select id="fMsg"><option>Telegram</option><option>WhatsApp</option><option>MAX</option></select></div>
@@ -442,6 +442,7 @@ button{cursor:pointer}
       <button data-tab="pay">Реквизиты</button>
       <button data-tab="msg">Сообщения</button>
       <button data-tab="tags">Теги</button>
+      <button data-tab="booking">Бронирование</button>
       <button data-tab="data">Данные</button>
     </div>
     <div id="stBody"></div>
@@ -567,7 +568,8 @@ const DEF = {
     }
   ],
   tags: ["💃","🔦","🧑‍🎓","❗️","◾️","🌈","⛺️","📸","🪩","👰","🐕","🐈","🍕","🫖","🎉","📽️","⏰","👶🏻","🎤"],
-  messages: { first:"", confirm:"" }
+  messages: { first:"", confirm:"" },
+  timeStep: 60          // шаг бронирования в минутах (60 или 30)
 };
 
 let cfg = load("tomson_cfg", DEF);
@@ -589,7 +591,6 @@ function save() {
 }
 function $(id){ return document.getElementById(id); }
 
-// Исправлено: функция iso(d) теперь учитывает локальный часовой пояс
 function iso(d){ 
   const offset = d.getTimezoneOffset() * 60000;
   return new Date(d.getTime() - offset).toISOString().slice(0,10);
@@ -821,7 +822,6 @@ function renderWeek(){
   const allBs = [...bookings, ...googleEvents].filter(b => b.hallId===hallId && b.date >= iso(start) && b.date <= iso(end));
   let html = `<div class="cal"><div class="week-scroll"><div class="wgrid">`;
   
-  // Header row
   html += '<div style="grid-column:1;grid-row:1"></div>';
   const today = iso(new Date());
   for (let i=0; i<7; i++){
@@ -833,12 +833,10 @@ function renderWeek(){
     </div>`;
   }
   
-  // Times column
   html += `<div style="grid-column:1;grid-row:2;position:relative">`;
   for(let h=8; h<=25; h++) html += `<div class="whour">${String(h%24).padStart(2,"0")}:00</div>`;
   html += `</div>`;
   
-  // Day columns (wcol) - только 7 штук
   for (let i=0; i<7; i++){
     const d = new Date(start); d.setDate(start.getDate()+i);
     const weekend = d.getDay()%6===0 ? " weekend" : "";
@@ -848,7 +846,6 @@ function renderWeek(){
   html += '</div></div></div>';
   $("calendar").innerHTML = html;
 
-  // Populate events and add long-press listener
   for (let i=0; i<7; i++){
     const d = new Date(start); d.setDate(start.getDate()+i);
     const key = iso(d);
@@ -868,7 +865,6 @@ function renderWeek(){
         slot.onclick = (e) => { e.stopPropagation(); if (!b.id.startsWith("g_")) openBooking(null, b.id); };
         col.appendChild(slot);
       });
-      // Listener
       col.addEventListener("pointerdown", (e) => handleWeekLongPress(e, i, start, hallId));
     }
   }
@@ -876,16 +872,13 @@ function renderWeek(){
 
 function renderMultiWeek(start){
   const halls = cfg.halls;
-  // Увеличиваем сетку для каждого дня каждого зала (3 зала * 7 дней = 21 колонка)
   let html = `<div class="cal"><div class="multi-halls"><div class="multi-grid" style="--hall-cols:${halls.length * 7}">`;
   
-  // Row 1: Halls headers
   html += '<div style="grid-column:1;grid-row:1/3"></div>';
   halls.forEach((h, hIndex) => {
     html += `<div class="hcol-head" style="grid-column:span 7"><span class="swatch" style="background:${h.color}"></span>${esc(h.name)}</div>`;
   });
 
-  // Row 2: Days headers
   halls.forEach((h, hIndex) => {
     for(let i=0; i<7; i++){
       const d = new Date(start); d.setDate(start.getDate()+i);
@@ -898,12 +891,10 @@ function renderMultiWeek(start){
     }
   });
 
-  // Row 3: Times column
   html += `<div style="grid-column:1;grid-row:3;position:relative">`;
   for(let h=8; h<=25; h++) html += `<div class="whour">${String(h%24).padStart(2,"0")}:00</div>`;
   html += `</div>`;
 
-  // Row 3: wcol for each day/hall
   halls.forEach((hall, hIndex) => {
     for(let i=0; i<7; i++){
       const d = new Date(start); d.setDate(start.getDate()+i);
@@ -915,7 +906,6 @@ function renderMultiWeek(start){
   html += '</div></div></div>';
   $("calendar").innerHTML = html;
 
-  // Populate events
   const allBs = [...bookings, ...googleEvents];
   halls.forEach(hall => {
     for(let i=0; i<7; i++){
@@ -948,13 +938,27 @@ function getMonday(d) {
   return new Date(d.setDate(diff));
 }
 
-/* --- Long press to create event --- */
+/* --- Long press to create event (исправленная версия) --- */
 function attachTimelineLongPress(containerId, date, hId) {
   const cont = document.getElementById(containerId);
   if (!cont) return;
-  // Высота строки разная в зависимости от режима (один зал или мульти)
-  const rowHeight = containerId === "timelineSingle" ? 56 : 48; 
-  let pressTimer, ghostEl, startHour;
+  const rowHeight = containerId === "timelineSingle" ? 56 : 48;
+  const stepMin = cfg.timeStep || 60;                // шаг в минутах
+  const stepPx = rowHeight * (stepMin / 60);         // пикселей на один шаг
+
+  let pressTimer, ghostEl, startHour, startMin, endHour, endMin;
+
+  // округлить значение до ближайшего шага вниз (в пикселях)
+  function roundDown(px) {
+    return Math.floor(px / stepPx) * stepPx;
+  }
+
+  function pxToTime(px) {
+    const totalMin = 8 * 60 + (px / rowHeight) * 60;
+    const h = Math.floor(totalMin / 60);
+    const m = Math.floor(totalMin % 60);
+    return { h, m };
+  }
 
   const clear = () => {
     clearTimeout(pressTimer);
@@ -965,32 +969,59 @@ function attachTimelineLongPress(containerId, date, hId) {
   cont.addEventListener("pointerdown", (e) => {
     const rect = cont.getBoundingClientRect();
     const y = e.clientY - rect.top + cont.scrollTop;
-    startHour = Math.max(8, Math.min(25, 8 + Math.floor(y / rowHeight)));
+    const roundedY = roundDown(y);
+    const { h, m } = pxToTime(roundedY);
+    startHour = h;
+    startMin = m;
+    endHour = h;
+    endMin = m;
+
     ghostEl = document.createElement("div");
     ghostEl.className = "ghost";
-    ghostEl.style.top = `${(startHour-8)*rowHeight}px`;
-    ghostEl.style.height = `${rowHeight}px`;
+    ghostEl.style.top = `${roundedY}px`;
+    ghostEl.style.height = `${stepPx}px`;
     cont.appendChild(ghostEl);
-    
-    // Используем задержку: если начали скроллить - pointercancel отменит таймер
+
     pressTimer = setTimeout(() => {
       if (ghostEl) ghostEl.classList.add("pressing");
-    }, 400); 
+    }, 400);
   });
 
   cont.addEventListener("pointermove", (e) => {
     if (!ghostEl || !ghostEl.classList.contains("pressing")) return;
     const rect = cont.getBoundingClientRect();
     const y = e.clientY - rect.top + cont.scrollTop;
-    const endHour = Math.max(8, Math.min(25, 8 + Math.floor(y / rowHeight)));
-    ghostEl.style.top = `${Math.min(startHour, endHour-8)*rowHeight}px`;
-    ghostEl.style.height = `${Math.max(1, Math.abs(endHour - startHour))*rowHeight}px`;
+    const roundedY = roundDown(y);
+    const { h, m } = pxToTime(roundedY);
+    endHour = h;
+    endMin = m;
+
+    const topPx = Math.min((startHour * 60 + startMin - 8 * 60) / 60 * rowHeight,
+                           (endHour * 60 + endMin - 8 * 60) / 60 * rowHeight);
+    const bottomPx = Math.max((startHour * 60 + startMin - 8 * 60) / 60 * rowHeight,
+                              (endHour * 60 + endMin - 8 * 60) / 60 * rowHeight);
+    ghostEl.style.top = `${topPx}px`;
+    ghostEl.style.height = `${Math.max(stepPx, bottomPx - topPx)}px`;
   });
 
   cont.addEventListener("pointerup", () => {
     clearTimeout(pressTimer);
     if (ghostEl && ghostEl.classList.contains("pressing")) {
-      openBooking(date, null, `${String(startHour).padStart(2,"0")}:00`, hId);
+      // Формируем времена
+      let sH = startHour, sM = startMin;
+      let eH = endHour, eM = endMin;
+      // если начало > конца, меняем
+      if (sH * 60 + sM > eH * 60 + eM) {
+        [sH, sM, eH, eM] = [eH, eM, sH, sM];
+      }
+      // минимальная длительность — один шаг
+      if (sH * 60 + sM >= eH * 60 + eM) {
+        eH = sH + Math.floor((sM + stepMin) / 60);
+        eM = (sM + stepMin) % 60;
+      }
+      const startStr = `${String(sH).padStart(2,"0")}:${String(sM).padStart(2,"0")}`;
+      const endStr = `${String(eH).padStart(2,"0")}:${String(eM).padStart(2,"0")}`;
+      openBooking(date, null, startStr, hId, endStr);
     }
     clear();
   });
@@ -1002,26 +1033,43 @@ function handleWeekLongPress(e, dayIndex, weekStart, hId) {
   const col = e.currentTarget;
   const rect = col.getBoundingClientRect();
   const y = e.clientY - rect.top + col.scrollTop;
-  const hour = Math.max(8, Math.min(25, 8 + Math.floor(y / 40)));
+  const rowHeight = 40;
+  const stepMin = cfg.timeStep || 60;
+  const stepPx = rowHeight * (stepMin / 60);
+
+  const roundedY = Math.floor(y / stepPx) * stepPx;
+  const totalMin = 8 * 60 + (roundedY / rowHeight) * 60;
+  let h = Math.floor(totalMin / 60);
+  let m = Math.floor(totalMin % 60);
+
   const d = new Date(weekStart); d.setDate(weekStart.getDate()+dayIndex);
-  openBooking(iso(d), null, `${String(hour).padStart(2,"0")}:00`, hId);
+  const startStr = `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
+  // конец по умолчанию + шаг
+  let eH = h + Math.floor((m + stepMin) / 60);
+  let eM = (m + stepMin) % 60;
+  const endStr = `${String(eH).padStart(2,"0")}:${String(eM).padStart(2,"0")}`;
+  openBooking(iso(d), null, startStr, hId, endStr);
 }
 
 /* ========== Booking sheet ========== */
-function openBooking(date, id, presetTime, specificHallId){
+function openBooking(date, id, presetTime, specificHallId, presetEndTime){
   editId = id || null;
   const b = id ? bookings.find(x => x.id === id) : null;
   $("bkTitle").textContent = b ? "Бронь" : "Новая бронь";
-  
-  // Добавлен выбор зала
+
+  // Установить шаг для полей времени
+  const stepSeconds = (cfg.timeStep || 60) * 60;
+  $("fStart").setAttribute("step", stepSeconds);
+  $("fEnd").setAttribute("step", stepSeconds);
+
   $("fHall").innerHTML = cfg.halls.map(h => `<option value="${h.id}">${h.name}</option>`).join("");
   $("fHall").value = specificHallId || b?.hallId || hallId || cfg.halls[0]?.id;
-  
+
   $("fName").value = b?.name || "";
   $("fPhone").value = b?.phone || "";
   $("fDate").value = b?.date || date || iso(cursor);
   $("fStart").value = b?.start || presetTime || "17:00";
-  $("fEnd").value = b?.end || (presetTime ? String(parseInt(presetTime)+1).padStart(2,"0")+":00" : "18:00");
+  $("fEnd").value = b?.end || presetEndTime || (presetTime ? String(parseInt(presetTime)+1).padStart(2,"0")+":00" : "18:00");
   $("fGuests").value = b?.guests || 1;
   $("fMsg").value = b?.messenger || "Telegram";
   $("fPay").value = b?.pay || "none";
@@ -1053,7 +1101,7 @@ function saveBooking(){
   
   const data = {
     id: editId || (crypto.randomUUID?.() || String(Date.now())),
-    hallId: selectedHallId, // Использовать выбранный зал
+    hallId: selectedHallId,
     name: $("fName").value.trim(),
     phone: $("fPhone").value.trim(),
     date: $("fDate").value,
@@ -1069,7 +1117,6 @@ function saveBooking(){
   
   if (!data.name || !data.date) { toast("Укажите имя и дату"); return; }
   
-  // Проверка конфликтов включая Google календарь
   const allBs = [...bookings, ...googleEvents];
   const clash = allBs.find(b =>
     b.hallId === data.hallId && b.date === data.date && b.id !== data.id &&
@@ -1271,6 +1318,21 @@ function settingsTab(tab){
       cfg.messages.first = $("msg1").value;
       cfg.messages.confirm = $("msg2").value;
       save(); toast("Шаблоны сохранены");
+    };
+  }
+  if (tab === "booking") {
+    body.innerHTML = `
+      <div class="sfield"><label>Шаг бронирования</label>
+        <select id="stTimeStep">
+          <option value="60" ${cfg.timeStep===60?"selected":""}>1 час</option>
+          <option value="30" ${cfg.timeStep===30?"selected":""}>30 минут</option>
+        </select>
+      </div>
+      <p class="hint">Влияет на выбор времени через таймлайн и поля ввода.</p>
+      <button class="act pri" style="margin-top:10px" id="svBooking">Сохранить</button>`;
+    $("svBooking").onclick = () => {
+      cfg.timeStep = parseInt($("stTimeStep").value, 10);
+      save(); toast("Шаг сохранён");
     };
   }
   if (tab === "tags") {
