@@ -4,8 +4,8 @@
   "description": "Приложение для бронирования залов фотостудии Томсон",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#eef1f5",
-  "theme_color": "#007aff",
+  "background_color": "#eef0f3",
+  "theme_color": "#eef0f3",
   "orientation": "portrait-primary",
   "icons": [
     {

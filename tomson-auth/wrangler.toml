@@ -1,0 +1,10 @@
+name = "tomson-auth"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+[[kv_namespaces]]
+binding = "TOKENS"
+id = "22926bb031944e9a88ca0da52b489594"
+
+[vars]
+POST_AUTH_REDIRECT = "https://alexeynovopashin-lab.github.io/TOMCON_2/"

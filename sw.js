@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tomson-booking-v2';
+const CACHE_NAME = 'tomson-booking-v7';
 const ASSETS = [
   './',
   './index.html',
@@ -9,7 +9,10 @@ const ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+    // Пофайлово, а не addAll: один недоступный файл не должен ломать установку SW
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(ASSETS.map((url) => cache.add(url).catch(() => {})))
+    )
   );
   self.skipWaiting();
 });

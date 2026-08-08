@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+
+# Cloudflare Wrangler
+.wrangler/
+node_modules/
+.dev.vars
+
+# Локальные настройки Claude Code
+.claude/settings.local.json
