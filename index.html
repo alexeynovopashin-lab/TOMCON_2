@@ -133,6 +133,10 @@ button{cursor:pointer}
 .bitem strong{display:block;font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bitem small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
 .bitem.google{opacity:.88;border-style:dashed}
+/* Метка «нет телефона»: заметная, но не кричащая — это напоминание, а не ошибка */
+.nophone{display:inline-block;margin-left:5px;padding:0 5px;border-radius:6px;
+  background:#ffb020;color:#3a2a00;font-size:10px;font-weight:700;vertical-align:1px}
+.warn{color:#b26a00}
 
 /* Week view */
 .week-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -2px}
@@ -589,6 +593,7 @@ async function loadGoogleEvents(hallIds, startDate, endDate) {
   if (view === "month") renderMonth();
   else if (view === "week") renderWeek();
   else renderDay();
+  renderSummary();
 
   $("syncDot").classList.add("on");
   setTimeout(() => $("syncDot").classList.remove("on"), 1000);
@@ -904,6 +909,18 @@ function priceOf(h, g){
   return h.prices.at(-1)?.[1] || 0;
 }
 function payCls(p){ return p === "full" ? "full" : p === "half" ? "half" : "none"; }
+
+/* Бронь без телефона — потерянный клиент: время занято, а связаться не с кем.
+   Номер часто узнают уже после записи (из входящих, из переписки), поэтому
+   делать поле обязательным нельзя — вместо этого помечаем такие брони,
+   пока номер не появится. События из Google не помечаем: они заведены не
+   здесь, и телефона у них может не быть по своей причине. */
+function needsPhone(b){
+  return Boolean(b) && !b.isGoogle && normPhone(b.phone).length !== 11;
+}
+function phoneMark(b){
+  return needsPhone(b) ? '<span class="nophone" title="Нет телефона">☎</span>' : "";
+}
 function paySym(p){ return p === "full" ? ".." : p === "half" ? "." : "-"; }
 function toast(m){
   const t = $("toast"); t.textContent = m; t.classList.add("show");
@@ -984,7 +1001,7 @@ function renderHalls(){
 /* ========== Calendar ========== */
 function render(){
   renderHalls();
-  renderToday();
+  renderSummary();
 
   const hallsToLoad = allHallsMode
     ? cfg.halls.map(h => h.id)
@@ -1063,9 +1080,44 @@ function renderMonth(){
   }
   html += "</div></div>";
   $("calendar").innerHTML = html;
+  /* Клик по дню открывает этот день, а не форму новой брони.
+     Раньше посмотреть дату из месяца было невозможно: открывалась форма,
+     и до нужного числа приходилось идти по одному дню в дневном виде.
+     Создание брони осталось на долгом нажатии и на кнопке «Новая бронь». */
   $("calendar").querySelectorAll(".day[data-date]").forEach(el => {
-    el.onclick = () => openBooking(el.dataset.date);
+    const date = el.dataset.date;
+    let timer = null, fired = false;
+
+    const start = () => {
+      fired = false;
+      timer = setTimeout(() => { fired = true; timer = null; openBooking(date); }, 500);
+    };
+    const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+
+    el.addEventListener("touchstart", start, { passive: true });
+    el.addEventListener("touchmove", cancel, { passive: true });
+    el.addEventListener("touchend", cancel);
+    el.addEventListener("mousedown", start);
+    el.addEventListener("mouseup", cancel);
+    el.addEventListener("mouseleave", cancel);
+
+    el.onclick = () => {
+      cancel();
+      /* Долгое нажатие уже открыло форму — обычный клик после него
+         не должен вдобавок уводить в дневной вид. */
+      if (fired) { fired = false; return; }
+      goToDay(date);
+    };
   });
+}
+
+/* Перейти к конкретному дню из месяца или недели. */
+function goToDay(dateKey){
+  const [y, m, d] = dateKey.split("-").map(Number);
+  cursor = new Date(y, m - 1, d);
+  view = "day";
+  updateViewButtons();
+  render();
 }
 
 /* --- Day --- */
@@ -1089,7 +1141,7 @@ function renderDay(){
     const hgt = Math.max(44, ((eh*60+em) - (sh*60+sm)) * (56/60));
     const tags = (b.tags||[]).join("");
     html += `<div class="bitem ${payCls(b.pay)}" style="top:${top}px;height:${hgt}px;border-color:${getHallColor(b.hallId)}" data-id="${b.id}">
-      <strong>${paySym(b.pay)}${tags} ${esc(b.name)}</strong>
+      <strong>${paySym(b.pay)}${tags} ${esc(b.name)}${phoneMark(b)}</strong>
       <small>${b.start}–${b.end} · ${b.guests||"?"} чел.</small>
     </div>`;
   });
@@ -1132,7 +1184,7 @@ function renderMultiDay(){
       const div = document.createElement("div");
       div.className = `bslot-multi ${payCls(b.pay)}`;
       div.style.cssText = `top:${top}px;height:${hgt}px;border-color:${h.color}`;
-      div.innerHTML = `<strong>${paySym(b.pay)}${(b.tags||[]).join("")} ${esc(b.name)}</strong><small>${b.start}–${b.end}</small>`;
+      div.innerHTML = `<strong>${paySym(b.pay)}${(b.tags||[]).join("")} ${esc(b.name)}${phoneMark(b)}</strong><small>${b.start}–${b.end}</small>`;
       div.onclick = (e) => {
         e.stopPropagation();
         if (b.id.startsWith("g_")) return;
@@ -1197,7 +1249,7 @@ function renderWeek(){
         const slot = document.createElement("div");
         slot.className = `wslot ${payCls(b.pay)}`;
         slot.style.cssText = `top:${top}px;height:${hgt}px;border-color:${getHallColor(b.hallId)}`;
-        slot.innerHTML = `<strong>${paySym(b.pay)}${esc(b.name)}</strong><small>${b.start}–${b.end}</small>`;
+        slot.innerHTML = `<strong>${paySym(b.pay)}${esc(b.name)}${phoneMark(b)}</strong><small>${b.start}–${b.end}</small>`;
         slot.onclick = (e) => { e.stopPropagation(); if (!b.id.startsWith("g_")) openBooking(null, b.id); };
         col.appendChild(slot);
       });
@@ -1258,7 +1310,7 @@ function renderMultiWeek(start){
           const slot = document.createElement("div");
           slot.className = `wslot ${payCls(b.pay)}`;
           slot.style.cssText = `top:${top}px;height:${hgt}px;border-color:${hall.color}`;
-          slot.innerHTML = `<strong>${paySym(b.pay)}${esc(b.name)}</strong><small>${b.start}–${b.end}</small>`;
+          slot.innerHTML = `<strong>${paySym(b.pay)}${esc(b.name)}${phoneMark(b)}</strong><small>${b.start}–${b.end}</small>`;
           slot.onclick = (e) => { e.stopPropagation(); if (!b.id.startsWith("g_")) openBooking(null, b.id); };
           col.appendChild(slot);
         });
@@ -1425,27 +1477,73 @@ function openBooking(date, id, presetTime, specificHallId, presetEndTime){
    название приложения, которое и так на иконке, и ничего не сообщала.
    Здесь отвечаем на вопрос, ради которого приложение чаще всего и
    открывают: что со студией прямо сейчас. */
-function renderToday(){
-  const key = iso(new Date());
-  const now = new Date().toTimeString().slice(0,5);
-  const todays = [...bookings, ...googleEvents].filter(b => b.date === key);
+/* Сводка в шапке.
+   Считается по периоду, который открыт на экране, а не только по сегодня:
+   студия работает на недели вперёд, и «сегодня» отвечает лишь на малую
+   часть вопросов. Вторая строка отдана броням без телефона — это то,
+   что теряет клиента, поэтому она вытесняет всё остальное. */
+function renderSummary(){
+  const period = visibleRange();
+  const inPeriod = b => b.date >= period.from && b.date <= period.to;
+  const mine = b => allHallsMode || b.hallId === hallId;
+  const list = [...bookings, ...googleEvents].filter(b => inPeriod(b) && mine(b));
 
-  const n = todays.length;
+  const n = list.length;
   const word = (n % 10 === 1 && n % 100 !== 11) ? "бронь"
              : ([2,3,4].includes(n % 10) && ![12,13,14].includes(n % 100)) ? "брони" : "броней";
-  $("todayCount").textContent = n ? `Сегодня ${n} ${word}` : "Сегодня свободно";
+  $("todayCount").textContent = n ? `${period.label} · ${n} ${word}` : `${period.label} · свободно`;
 
+  const noPhone = list.filter(needsPhone);
+  if (noPhone.length) {
+    const d = noPhone.length;
+    const w = (d % 10 === 1 && d % 100 !== 11) ? "бронь без телефона"
+            : ([2,3,4].includes(d % 10) && ![12,13,14].includes(d % 100)) ? "брони без телефона" : "броней без телефона";
+    $("todayHalls").innerHTML = `<span class="warn">☎ ${d} ${w}</span>`;
+    return;
+  }
+
+  /* Телефоны в порядке — показываем, что со студией прямо сейчас,
+     но только если сегодняшний день попадает в открытый период. */
+  const today = iso(new Date());
+  if (today < period.from || today > period.to) { $("todayHalls").textContent = ""; return; }
+
+  const now = new Date().toTimeString().slice(0,5);
+  const todays = list.filter(b => b.date === today);
   const busy = cfg.halls.map(h => {
     const cur = todays.filter(b => b.hallId === h.id && b.start <= now && b.end > now)
                       .sort((a,b) => b.end.localeCompare(a.end))[0];
     return cur ? `${h.name} до ${cur.end}` : null;
   }).filter(Boolean);
-
   const next = todays.filter(b => b.start > now).sort((a,b) => a.start.localeCompare(b.start))[0];
+
   $("todayHalls").textContent =
-    busy.length ? `Занято: ${busy.join(", ")}`
-    : next ? `Ближайшая в ${next.start} · ${(cfg.halls.find(h=>h.id===next.hallId)||{}).name || ""}`
-    : "Все залы свободны";
+    busy.length ? `Сейчас занято: ${busy.join(", ")}`
+    : next ? `Ближайшая сегодня в ${next.start} · ${(cfg.halls.find(h=>h.id===next.hallId)||{}).name || ""}`
+    : "Сегодня залы свободны";
+}
+
+/* Период, открытый на экране, и его человеческое название. */
+function visibleRange(){
+  const y = cursor.getFullYear(), m = cursor.getMonth();
+  if (view === "month") {
+    return {
+      from: iso(new Date(y, m, 1)),
+      to: iso(new Date(y, m + 1, 0)),
+      label: new Intl.DateTimeFormat("ru-RU", { month: "long" }).format(cursor).replace(/^./, c => c.toUpperCase())
+    };
+  }
+  if (view === "week") {
+    const start = getMonday(cursor);
+    const end = new Date(start); end.setDate(start.getDate() + 6);
+    const f = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short" });
+    return { from: iso(start), to: iso(end), label: `${f.format(start)} – ${f.format(end)}` };
+  }
+  const key = iso(cursor);
+  const isToday = key === iso(new Date());
+  return {
+    from: key, to: key,
+    label: isToday ? "Сегодня" : new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long" }).format(cursor)
+  };
 }
 
 /* Выпадающий список проката. Цена показана у каждой позиции, чтобы
