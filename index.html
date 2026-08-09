@@ -558,6 +558,86 @@ async function loadGoogleEvents(hallIds, startDate, endDate) {
   setTimeout(() => $("syncDot").classList.remove("on"), 1000);
 }
 
+/* ========== Запись в Google Calendar ==========
+   Часовой пояс проставляется явно. Полагаться на часовой пояс браузера
+   нельзя: администратор может работать из другого региона, и тогда
+   событие уедет относительно реального времени съёмки. */
+const CALENDAR_TZ = "Asia/Tomsk";
+
+/* Тело события. Согласно CLAUDE_CONTEXT §27 summary держим коротким и
+   пригодным для чтения в обычном календаре, а подробности уносим в
+   description, а не склеиваем всё в название. */
+function buildEventBody(b) {
+  const h = cfg.halls.find(x => x.id === b.hallId) || hall();
+  const description = [
+    `Зал: ${h.name}`,
+    b.phone ? `Телефон: ${fmtPhone(b.phone)}` : "",
+    `Гостей: ${b.guests}`,
+    `Оплата: ${paySym(b.pay)}`,
+    (b.tags || []).length ? `Теги: ${b.tags.join(" ")}` : "",
+    b.notes ? `Заметки: ${b.notes}` : "",
+    b.price ? `Стоимость: ${money(b.price)}` : "",
+    "",
+    `Создано в приложении «Томсон» · бронь ${b.id}`
+  ].filter(Boolean).join("\n");
+
+  return {
+    summary: calTitle(b),
+    location: `${cfg.studio.address}, ${cfg.studio.floor}, оф. ${h.office}, зал ${h.name}`,
+    description,
+    start: { dateTime: `${b.date}T${b.start}:00`, timeZone: CALENDAR_TZ },
+    end:   { dateTime: `${b.date}T${b.end}:00`,   timeZone: CALENDAR_TZ }
+  };
+}
+
+/* Создать событие и запомнить его id. Возвращает { ok, error }.
+   Обновление существующего события — этап 4, поэтому здесь стоит защита:
+   повторный вызов для уже связанной брони не создаёт второе событие. */
+async function createGoogleEvent(b) {
+  const calendarId = calendarIdFor(b.hallId);
+  if (!calendarId) return { ok: false, error: "Для этого зала не задан календарь" };
+  if (isLinkedToGoogle(b)) return { ok: false, error: "Бронь уже есть в календаре" };
+
+  const url = `${WORKER_URL}/calendar/calendars/${encodeURIComponent(calendarId)}/events`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildEventBody(b))
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) {
+      const msg = data.error?.message || data.error || `HTTP ${res.status}`;
+      return { ok: false, error: String(msg) };
+    }
+    if (!data.id) return { ok: false, error: "Google не вернул id события" };
+
+    /* Записываем связь в саму бронь в массиве: b может быть копией. */
+    const stored = bookings.find(x => x.id === b.id);
+    if (stored) {
+      stored.googleEventId = data.id;
+      stored.googleCalendarId = calendarId;
+      save();
+    }
+    return { ok: true, id: data.id };
+  } catch (err) {
+    return { ok: false, error: err.message || "Нет связи с сервером" };
+  }
+}
+
+/* Резервный путь: открыть веб-форму Google. Используется, если запись
+   через API не прошла, чтобы администратор всё равно мог завести
+   событие руками и не остался заблокированным (CLAUDE_CONTEXT §39). */
+function openGCalWebForm(b) {
+  const h = cfg.halls.find(x => x.id === b.hallId) || hall();
+  const title = encodeURIComponent(calTitle(b));
+  const loc = encodeURIComponent(`${cfg.studio.address}, оф. ${h.office}, ${h.name}`);
+  const details = encodeURIComponent([`Зал: ${h.name}`, `Гостей: ${b.guests}`, b.notes || ""].filter(Boolean).join("\n"));
+  const s = toICSDate(b.date + "T" + b.start + ":00");
+  const e = toICSDate(b.date + "T" + b.end + ":00");
+  window.open(`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${s}/${e}&details=${details}&location=${loc}&ctz=${CALENDAR_TZ}`, "_blank");
+}
+
 /* ========== Defaults ========== */
 const DEF = {
   studio: {
@@ -1311,13 +1391,23 @@ function addGCal(){
   let b = cur();
   if (!b) { saveBooking(); b = cur(); }
   if (!b) return;
-  const h = cfg.halls.find(x => x.id === b.hallId) || hall();
-  const title = encodeURIComponent(calTitle(b));
-  const loc = encodeURIComponent(`${cfg.studio.address}, оф. ${h.office}, ${h.name}`);
-  const details = encodeURIComponent([`Зал: ${h.name}`,`Гостей: ${b.guests}`,b.notes||""].filter(Boolean).join("\n"));
-  const s = toICSDate(b.date+"T"+b.start+":00");
-  const e = toICSDate(b.date+"T"+b.end+":00");
-  window.open(`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${s}/${e}&details=${details}&location=${loc}&ctz=Asia/Tomsk`,"_blank");
+
+  if (isLinkedToGoogle(b)) { toast("Уже в календаре"); return; }
+
+  toast("Добавляю в календарь…");
+  createGoogleEvent(b).then(res => {
+    if (res.ok) {
+      toast("Добавлено в календарь");
+      render();
+      return;
+    }
+    /* API не сработал — не оставляем администратора ни с чем:
+       предлагаем завести событие через веб-форму Google. */
+    console.error("Google Calendar:", res.error);
+    if (confirm(`Не удалось добавить через приложение:\n${res.error}\n\nОткрыть Google Календарь и добавить вручную?`)) {
+      openGCalWebForm(b);
+    }
+  });
 }
 
 /* ========== Settings ========== */
