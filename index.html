@@ -1161,15 +1161,16 @@ function renderDay(){
   }
   const allBs = [...bookings, ...googleEvents].filter(b => b.hallId===hallId && b.date===key)
     .sort((a,b) => a.start.localeCompare(b.start));
+  computeGrid(allBs);
   let html = '<div class="cal"><div class="dayview"><div class="times">';
-  for (let h=8; h<=25; h++) html += `<div class="time">${String(h%24).padStart(2,"0")}:00</div>`;
+  gridHours().forEach(t => html += `<div class="time">${t}</div>`);
   html += '</div><div class="timeline" id="timelineSingle">';
   if (!allBs.length) html += '<div class="empty" style="position:absolute;inset:40px 0 0;display:flex;flex-direction:column;align-items:center;gap:10px"><svg width="36" height="36" viewBox="0 0 24 24"><use href="#i-cal"/></svg><span>Нет броней</span></div>';
   allBs.forEach(b => {
     const [sh,sm] = b.start.split(":").map(Number);
     const [eh,em] = b.end.split(":").map(Number);
-    const top = ((sh*60+sm) - 8*60) * (56/60);
-    const hgt = Math.max(44, ((eh*60+em) - (sh*60+sm)) * (56/60));
+    const top = gridTop(b, 56);
+    const hgt = gridHeight(b, 56, 44);
     const tags = (b.tags||[]).join("");
     html += `<div class="bitem ${payCls(b.pay)}" style="top:${top}px;height:${hgt}px;border-color:${getHallColor(b.hallId)}" data-id="${b.id}">
       <strong>${paySym(b.pay)}${tags} ${esc(b.name)}${phoneMark(b)}</strong>
@@ -1191,9 +1192,10 @@ function renderDay(){
 function renderMultiDay(){
   const key = iso(cursor);
   const halls = cfg.halls;
+  computeGrid([...bookings, ...googleEvents].filter(b => b.date === key));
   let html = `<div class="cal"><div class="multi-halls"><div class="multi-grid" style="--hall-cols:${halls.length}">`;
   html += '<div class="times" style="grid-row:2/-1">';
-  for (let h=8; h<=25; h++) html += `<div class="time">${String(h%24).padStart(2,"0")}:00</div>`;
+  gridHours().forEach(t => html += `<div class="time">${t}</div>`);
   html += '</div>';
   halls.forEach(h => {
     html += `<div class="hcol-head"><span class="swatch" style="background:${h.color}"></span>${esc(h.name)}</div>`;
@@ -1210,8 +1212,8 @@ function renderMultiDay(){
     bs.forEach(b => {
       const [sh,sm] = b.start.split(":").map(Number);
       const [eh,em] = b.end.split(":").map(Number);
-      const top = ((sh*60+sm) - 8*60) * (48/60);
-      const hgt = Math.max(44, ((eh*60+em) - (sh*60+sm)) * (48/60));
+      const top = gridTop(b, 48);
+      const hgt = gridHeight(b, 48, 44);
       const div = document.createElement("div");
       div.className = `bslot-multi ${payCls(b.pay)}`;
       div.style.cssText = `top:${top}px;height:${hgt}px;border-color:${h.color}`;
@@ -1239,6 +1241,7 @@ function renderWeek(){
   }
   
   const allBs = [...bookings, ...googleEvents].filter(b => b.hallId===hallId && b.date >= iso(start) && b.date <= iso(end));
+  computeGrid(allBs);
   let html = `<div class="cal"><div class="week-scroll"><div class="wgrid">`;
   
   html += '<div style="grid-column:1;grid-row:1"></div>';
@@ -1253,7 +1256,7 @@ function renderWeek(){
   }
   
   html += `<div style="grid-column:1;grid-row:2;position:relative">`;
-  for(let h=8; h<=25; h++) html += `<div class="whour">${String(h%24).padStart(2,"0")}:00</div>`;
+  gridHours().forEach(t => html += `<div class="whour">${t}</div>`);
   html += `</div>`;
   
   for (let i=0; i<7; i++){
@@ -1275,8 +1278,8 @@ function renderWeek(){
       bs.forEach(b => {
         const [sh,sm] = b.start.split(":").map(Number);
         const [eh,em] = b.end.split(":").map(Number);
-        const top = ((sh*60+sm) - 8*60) * (40/60);
-        const hgt = Math.max(30, ((eh*60+em) - (sh*60+sm)) * (40/60));
+        const top = gridTop(b, 40);
+        const hgt = gridHeight(b, 40, 30);
         const slot = document.createElement("div");
         slot.className = `wslot ${payCls(b.pay)}`;
         slot.style.cssText = `top:${top}px;height:${hgt}px;border-color:${getHallColor(b.hallId)}`;
@@ -1291,6 +1294,8 @@ function renderWeek(){
 
 function renderMultiWeek(start){
   const halls = cfg.halls;
+  const wEnd = new Date(start); wEnd.setDate(start.getDate() + 6);
+  computeGrid([...bookings, ...googleEvents].filter(b => b.date >= iso(start) && b.date <= iso(wEnd)));
   let html = `<div class="cal"><div class="multi-halls"><div class="multi-grid" style="--hall-cols:${halls.length * 7}">`;
   
   html += '<div style="grid-column:1;grid-row:1/3"></div>';
@@ -1311,7 +1316,7 @@ function renderMultiWeek(start){
   });
 
   html += `<div style="grid-column:1;grid-row:3;position:relative">`;
-  for(let h=8; h<=25; h++) html += `<div class="whour">${String(h%24).padStart(2,"0")}:00</div>`;
+  gridHours().forEach(t => html += `<div class="whour">${t}</div>`);
   html += `</div>`;
 
   halls.forEach((hall, hIndex) => {
@@ -1336,8 +1341,8 @@ function renderMultiWeek(start){
         bs.forEach(b => {
           const [sh,sm] = b.start.split(":").map(Number);
           const [eh,em] = b.end.split(":").map(Number);
-          const top = ((sh*60+sm) - 8*60) * (40/60);
-          const hgt = Math.max(30, ((eh*60+em) - (sh*60+sm)) * (40/60));
+          const top = gridTop(b, 40);
+          const hgt = gridHeight(b, 40, 30);
           const slot = document.createElement("div");
           slot.className = `wslot ${payCls(b.pay)}`;
           slot.style.cssText = `top:${top}px;height:${hgt}px;border-color:${hall.color}`;
@@ -1349,6 +1354,50 @@ function renderMultiWeek(start){
       }
     }
   });
+}
+
+/* ========== Временная сетка дня ==========
+   Сетка была жёстко прибита к 08:00–01:00, а положение брони считалось
+   от 08:00. Съёмка в 07:00 давала отрицательное смещение и рисовалась
+   выше сетки, поверх колонки с часами. Теперь окно раздвигается под
+   реальные брони: ранние и заканчивающиеся после полуночи попадают внутрь. */
+const GRID_DEFAULT_START = 8;
+const GRID_DEFAULT_END = 25;
+let gridStartH = GRID_DEFAULT_START;
+let gridEndH = GRID_DEFAULT_END;
+
+function hm(t){
+  const [h, m] = String(t || "0:0").split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+/* Бронь через полночь: конец меньше начала — значит уже следующие сутки. */
+function spanOf(b){
+  const s = hm(b.start);
+  let e = hm(b.end);
+  if (e <= s) e += 24 * 60;
+  return { s, e };
+}
+function computeGrid(list){
+  let s = GRID_DEFAULT_START * 60, e = GRID_DEFAULT_END * 60;
+  (list || []).forEach(b => {
+    const sp = spanOf(b);
+    s = Math.min(s, sp.s);
+    e = Math.max(e, sp.e);
+  });
+  gridStartH = Math.max(0, Math.floor(s / 60));
+  gridEndH = Math.min(47, Math.ceil(e / 60));
+}
+function gridTop(b, rowPx){
+  return (spanOf(b).s - gridStartH * 60) * (rowPx / 60);
+}
+function gridHeight(b, rowPx, min){
+  const sp = spanOf(b);
+  return Math.max(min, (sp.e - sp.s) * (rowPx / 60));
+}
+function gridHours(){
+  const out = [];
+  for (let h = gridStartH; h <= gridEndH; h++) out.push(String(h % 24).padStart(2, "0") + ":00");
+  return out;
 }
 
 function getMonday(d) {
@@ -1373,7 +1422,7 @@ function attachTimelineLongPress(containerId, date, hId) {
   }
 
   function pxToTime(px) {
-    const totalMin = 8 * 60 + (px / rowHeight) * 60;
+    const totalMin = gridStartH * 60 + (px / rowHeight) * 60;
     const h = Math.floor(totalMin / 60);
     const m = Math.floor(totalMin % 60);
     return { h, m };
@@ -1415,10 +1464,10 @@ function attachTimelineLongPress(containerId, date, hId) {
     endHour = h;
     endMin = m;
 
-    const topPx = Math.min((startHour * 60 + startMin - 8 * 60) / 60 * rowHeight,
-                           (endHour * 60 + endMin - 8 * 60) / 60 * rowHeight);
-    const bottomPx = Math.max((startHour * 60 + startMin - 8 * 60) / 60 * rowHeight,
-                              (endHour * 60 + endMin - 8 * 60) / 60 * rowHeight);
+    const topPx = Math.min((startHour * 60 + startMin - gridStartH * 60) / 60 * rowHeight,
+                           (endHour * 60 + endMin - gridStartH * 60) / 60 * rowHeight);
+    const bottomPx = Math.max((startHour * 60 + startMin - gridStartH * 60) / 60 * rowHeight,
+                              (endHour * 60 + endMin - gridStartH * 60) / 60 * rowHeight);
     ghostEl.style.top = `${topPx}px`;
     ghostEl.style.height = `${Math.max(stepPx, bottomPx - topPx)}px`;
   });
@@ -1457,7 +1506,7 @@ function handleWeekLongPress(e, dayIndex, weekStart, hId) {
   const stepPx = rowHeight * (stepMin / 60);
 
   const roundedY = Math.floor(y / stepPx) * stepPx;
-  const totalMin = 8 * 60 + (roundedY / rowHeight) * 60;
+  const totalMin = gridStartH * 60 + (roundedY / rowHeight) * 60;
   let h = Math.floor(totalMin / 60);
   let m = Math.floor(totalMin % 60);
 
