@@ -4,7 +4,9 @@ const SCOPES = "https://www.googleapis.com/auth/calendar https://www.googleapis.
 function cors() {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    // PATCH и DELETE нужны для изменения и удаления событий календаря.
+    // Без них браузер отклоняет запрос на стадии preflight.
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
 }

@@ -625,6 +625,76 @@ async function createGoogleEvent(b) {
   }
 }
 
+/* Обновить существующее событие. Если события в Google уже нет (его удалили
+   вручную), связь считается устаревшей: сбрасываем её и создаём заново —
+   иначе бронь навсегда осталась бы указывающей в пустоту. */
+async function updateGoogleEvent(b) {
+  const calendarId = b.googleCalendarId || calendarIdFor(b.hallId);
+  if (!b.googleEventId || !calendarId) return { ok: false, error: "Бронь не связана с календарём" };
+
+  const url = `${WORKER_URL}/calendar/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(b.googleEventId)}`;
+  try {
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildEventBody(b))
+    });
+
+    if (res.status === 404 || res.status === 410) {
+      const stored = bookings.find(x => x.id === b.id);
+      if (stored) { stored.googleEventId = null; stored.googleCalendarId = null; save(); }
+      return createGoogleEvent(stored || b);
+    }
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) {
+      const msg = data.error?.message || data.error || `HTTP ${res.status}`;
+      return { ok: false, error: String(msg) };
+    }
+    return { ok: true, id: data.id };
+  } catch (err) {
+    return { ok: false, error: err.message || "Нет связи с сервером" };
+  }
+}
+
+/* Удалить событие. Уже удалённое событие считаем успехом: цель —
+   отсутствие события в календаре, и она достигнута. */
+async function deleteGoogleEvent(eventId, calendarId) {
+  if (!eventId || !calendarId) return { ok: true };
+  const url = `${WORKER_URL}/calendar/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`;
+  try {
+    const res = await fetch(url, { method: "DELETE" });
+    if (res.ok || res.status === 404 || res.status === 410) return { ok: true };
+    const data = await res.json().catch(() => ({}));
+    return { ok: false, error: data.error?.message || `HTTP ${res.status}` };
+  } catch (err) {
+    return { ok: false, error: err.message || "Нет связи с сервером" };
+  }
+}
+
+/* Единая точка выгрузки брони в Google: создать, обновить или перенести.
+   Смена зала — это переезд в другой календарь: событие удаляется из старого
+   и создаётся в новом, потому что перенести событие между календарями
+   изменением полей нельзя. */
+async function syncBookingToGoogle(b, prevCalendarId) {
+  const target = calendarIdFor(b.hallId);
+  if (!target) return { ok: false, error: "Для этого зала не задан календарь" };
+
+  if (!isLinkedToGoogle(b)) return createGoogleEvent(b);
+
+  const from = prevCalendarId || b.googleCalendarId;
+  if (from && from !== target) {
+    await deleteGoogleEvent(b.googleEventId, from);
+    const stored = bookings.find(x => x.id === b.id) || b;
+    stored.googleEventId = null;
+    stored.googleCalendarId = null;
+    save();
+    return createGoogleEvent(stored);
+  }
+
+  return updateGoogleEvent(b);
+}
+
 /* Резервный путь: открыть веб-форму Google. Используется, если запись
    через API не прошла, чтобы администратор всё равно мог завести
    событие руками и не остался заблокированным (CLAUDE_CONTEXT §39). */
@@ -1281,10 +1351,32 @@ function saveBooking(){
   toast("Сохранено");
   render();
   $("bkDel").style.display = "";
+
+  /* Бронь, уже выгруженную в Google, держим в актуальном состоянии.
+     Новую бронь сюда не отправляем: выгрузка остаётся явным действием
+     администратора по кнопке. Сохранение локально уже состоялось —
+     ошибка Google не должна его отменять, поэтому только сообщаем. */
+  if (isLinkedToGoogle(data)) {
+    syncBookingToGoogle(data, prev?.googleCalendarId).then(res => {
+      if (res.ok) { toast("Календарь обновлён"); render(); }
+      else { console.error("Google Calendar:", res.error); toast("Календарь не обновлён: " + res.error); }
+    });
+  }
 }
 
 function deleteBooking(){
   if (!editId || !confirm("Удалить бронь?")) return;
+
+  /* Событие в Google удаляем до того, как потеряем ссылку на него.
+     Если удалить бронь первой, googleEventId исчезнет и событие
+     останется в календаре навсегда. */
+  const b = bookings.find(x => x.id === editId);
+  if (isLinkedToGoogle(b)) {
+    deleteGoogleEvent(b.googleEventId, b.googleCalendarId || calendarIdFor(b.hallId)).then(res => {
+      if (!res.ok) { console.error("Google Calendar:", res.error); toast("Событие в календаре осталось: " + res.error); }
+    });
+  }
+
   bookings = bookings.filter(x => x.id !== editId);
   save(); closeBooking(); render(); toast("Удалено");
 }
