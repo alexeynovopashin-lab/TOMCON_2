@@ -469,11 +469,29 @@ button{cursor:pointer}
 
 <script>
 /* ========== Google Calendar Integration Config ========== */
-const GOOGLE_CALENDARS = {
-  sphere: "novopashin.alexey@gmail.com",
-  edison: "tg8qmfvdq63kla43ru7i9c2dl8@group.calendar.google.com",
-  vegas: "fk2v3u4en0avlo5799tmvopt7o@group.calendar.google.com"
+/* Режим календарей.
+   "test" — отладочные календари, можно свободно создавать и удалять события.
+   "live" — рабочие календари студии.
+   Переключать только после того, как пройден полный цикл проверок
+   (см. ROADMAP.md, этапы 3-7). Переключение = одна строка ниже. */
+const CALENDAR_MODE = "test";
+
+const CALENDAR_SETS = {
+  test: {
+    edison: "6f89fde3c9c8fb16463cae64d30e92f3f3b96a3cf9fe3784dcf6d8d7f5616c13@group.calendar.google.com", // TOMCOH Edison test
+    sphere: "5cd94eec5d9e29ae224dd1d75f8e6d06ce2234570ed22aeb1011df2d996ee5f3@group.calendar.google.com", // TOMCOH Sfera test
+    vegas:  "8a5d49e1c87dd7cd07e6ee9382732b9515df65b334de1558f3bf6028617ed975@group.calendar.google.com"  // TOMCOH Vegas test
+  },
+  /* Рабочие календари залов ещё не заведены.
+     Заполнить перед переключением CALENDAR_MODE на "live". */
+  live: {
+    edison: "",
+    sphere: "",
+    vegas:  ""
+  }
 };
+
+const GOOGLE_CALENDARS = CALENDAR_SETS[CALENDAR_MODE] || CALENDAR_SETS.test;
 const WORKER_URL = "https://tomson-auth.alexeynovopashin.workers.dev";
 
 let googleEvents = [];
