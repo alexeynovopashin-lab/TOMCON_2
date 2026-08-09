@@ -137,6 +137,20 @@ button{cursor:pointer}
 .nophone{display:inline-block;margin-left:5px;padding:0 5px;border-radius:6px;
   background:#ffb020;color:#3a2a00;font-size:10px;font-weight:700;vertical-align:1px}
 .warn{color:#b26a00}
+.warnpill{color:#b26a00}
+/* Список проблемных броней */
+.iss{display:flex;align-items:center;gap:12px;width:100%;background:var(--panel);
+  border:0;border-radius:14px;padding:12px 14px;margin-bottom:8px;font:inherit;
+  text-align:left;cursor:pointer;color:inherit}
+.iss-when{flex:0 0 62px;font-size:12px;color:var(--muted);line-height:1.35}
+.iss-when b{display:block;font-size:15px;color:var(--txt);font-weight:650}
+.iss-main{flex:1;min-width:0}
+.iss-main b{display:block;font-size:14px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.iss-main small{color:var(--muted);font-size:12px}
+.iss-flags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.flag{font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px}
+.flag.p{background:#ffb020;color:#3a2a00}
+.flag.m{background:#e6ecff;color:#2b46b8}
 
 /* Week view */
 .week-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -2px}
@@ -405,6 +419,7 @@ button{cursor:pointer}
       <button id="vDay">День</button>
     </div>
     <button class="pill" id="btnToday">Сегодня</button>
+    <button class="pill warnpill" id="btnIssues" style="display:none"></button>
   </div>
 
   <div class="halls" id="halls"></div>
@@ -465,6 +480,22 @@ button{cursor:pointer}
       <button class="act" id="bkICS" style="display:none"><svg viewBox="0 0 24 24"><use href="#i-cal"/></svg>Календарь (.ics)</button>
       <button class="act danger" id="bkDel" style="display:none"><svg viewBox="0 0 24 24"><use href="#i-trash"/></svg>Удалить</button>
     </div>
+  </div>
+</div>
+
+<!-- Issues sheet -->
+<div class="overlay" id="ovIssues">
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2>Требуют внимания</h2>
+      <button class="ibtn" id="isClose" aria-label="Закрыть"><svg viewBox="0 0 24 24"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="seg" id="isTabs" style="margin-bottom:12px">
+      <button class="on" data-f="all">Все</button>
+      <button data-f="phone">Без телефона</button>
+      <button data-f="pay">Без предоплаты</button>
+    </div>
+    <div id="isBody"></div>
   </div>
 </div>
 
@@ -1483,6 +1514,7 @@ function openBooking(date, id, presetTime, specificHallId, presetEndTime){
    часть вопросов. Вторая строка отдана броням без телефона — это то,
    что теряет клиента, поэтому она вытесняет всё остальное. */
 function renderSummary(){
+  renderIssuesPill();
   const period = visibleRange();
   const inPeriod = b => b.date >= period.from && b.date <= period.to;
   const mine = b => allHallsMode || b.hallId === hallId;
@@ -1498,7 +1530,7 @@ function renderSummary(){
     const d = noPhone.length;
     const w = (d % 10 === 1 && d % 100 !== 11) ? "бронь без телефона"
             : ([2,3,4].includes(d % 10) && ![12,13,14].includes(d % 100)) ? "брони без телефона" : "броней без телефона";
-    $("todayHalls").innerHTML = `<span class="warn">☎ ${d} ${w}</span>`;
+    $("todayHalls").innerHTML = `<span class="warn" style="cursor:pointer">☎ ${d} ${w}</span>`;
     return;
   }
 
@@ -1520,6 +1552,74 @@ function renderSummary(){
     busy.length ? `Сейчас занято: ${busy.join(", ")}`
     : next ? `Ближайшая сегодня в ${next.start} · ${(cfg.halls.find(h=>h.id===next.hallId)||{}).name || ""}`
     : "Сегодня залы свободны";
+}
+
+/* ========== Брони, требующие внимания ==========
+   Метка в календаре показывает проблему только когда открыт нужный период.
+   Бронь на сентябрь, забытая в августе, так и не попадётся на глаза —
+   поэтому нужен список по всем будущим датам, независимо от того, что
+   сейчас на экране. Прошедшие брони не показываем: там уже поздно. */
+let issuesFilter = "all";
+
+function needsPay(b){
+  return Boolean(b) && !b.isGoogle && (b.pay || "none") === "none";
+}
+
+function issueList(filter = "all"){
+  const today = iso(new Date());
+  return bookings
+    .filter(b => b.date >= today)
+    .filter(b => filter === "phone" ? needsPhone(b)
+               : filter === "pay"   ? needsPay(b)
+               : (needsPhone(b) || needsPay(b)))
+    .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+}
+
+function openIssues(filter){
+  issuesFilter = filter || "all";
+  $("isTabs").querySelectorAll("button").forEach(el => el.classList.toggle("on", el.dataset.f === issuesFilter));
+  renderIssues();
+  $("ovIssues").classList.add("show");
+}
+function closeIssues(){ $("ovIssues").classList.remove("show"); }
+
+function renderIssues(){
+  const list = issueList(issuesFilter);
+  const body = $("isBody");
+  if (!list.length) {
+    body.innerHTML = `<div style="padding:24px 4px;text-align:center;color:var(--muted);font-size:14px">
+      Всё в порядке — ничего не потеряно</div>`;
+    return;
+  }
+  const fmt = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short" });
+  body.innerHTML = list.map(b => {
+    const h = cfg.halls.find(x => x.id === b.hallId);
+    const [y, m, d] = b.date.split("-").map(Number);
+    return `<button type="button" class="iss" data-id="${esc(b.id)}">
+      <span class="iss-when"><b>${fmt.format(new Date(y, m - 1, d))}</b>${b.start}–${b.end}</span>
+      <span class="iss-main">
+        <b>${esc(b.name || "Без имени")}</b>
+        <small>${esc(h?.name || "")} · ${b.guests || "?"} чел.</small>
+        <span class="iss-flags">
+          ${needsPhone(b) ? '<span class="flag p">☎ нет телефона</span>' : ""}
+          ${needsPay(b) ? '<span class="flag m">нет предоплаты</span>' : ""}
+        </span>
+      </span>
+    </button>`;
+  }).join("");
+
+  body.querySelectorAll(".iss").forEach(el => {
+    el.onclick = () => { closeIssues(); openBooking(null, el.dataset.id); };
+  });
+}
+
+/* Кнопка появляется только когда есть что чинить: постоянный элемент
+   интерфейса с нулём быстро перестают замечать. */
+function renderIssuesPill(){
+  const n = issueList("all").length;
+  const btn = $("btnIssues");
+  btn.style.display = n ? "" : "none";
+  btn.textContent = n ? `Требуют внимания · ${n}` : "";
 }
 
 /* Период, открытый на экране, и его человеческое название. */
@@ -2071,6 +2171,15 @@ $("bkSave").onclick = saveBooking;
 $("bkDel").onclick = deleteBooking;
 $("bkSend1").onclick = () => sendMsg("first");
 $("bkSend2").onclick = () => sendMsg("confirm");
+$("btnIssues").onclick = () => openIssues("all");
+$("isClose").onclick = closeIssues;
+$("ovIssues").addEventListener("click", e => { if (e.target === $("ovIssues")) closeIssues(); });
+$("isTabs").querySelectorAll("button").forEach(b => {
+  b.onclick = () => openIssues(b.dataset.f);
+});
+/* Счётчик в шапке — тоже вход в список, сразу с нужным фильтром */
+$("todayHalls").onclick = () => { if (issueList("phone").length) openIssues("phone"); };
+
 $("bkICS").onclick = addICS;
 attachPhoneFormatting($("fPhone"));
 /* Итог зависит от зала, гостей и времени — пересчитываем при любом их изменении */
