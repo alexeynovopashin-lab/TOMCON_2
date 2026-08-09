@@ -640,13 +640,20 @@ async function updateGoogleEvent(b) {
       body: JSON.stringify(buildEventBody(b))
     });
 
-    if (res.status === 404 || res.status === 410) {
-      const stored = bookings.find(x => x.id === b.id);
-      if (stored) { stored.googleEventId = null; stored.googleCalendarId = null; save(); }
-      return createGoogleEvent(stored || b);
+    const data = await res.json().catch(() => ({}));
+
+    /* Удалённое в Google событие не исчезает, а получает status "cancelled",
+       и PATCH по нему возвращает 200, а не 404. Без этой проверки бронь
+       осталась бы привязанной к событию, которого в календаре не видно. */
+    const gone = res.status === 404 || res.status === 410 || data.status === "cancelled";
+    if (gone) {
+      const stored = bookings.find(x => x.id === b.id) || b;
+      stored.googleEventId = null;
+      stored.googleCalendarId = null;
+      save();
+      return createGoogleEvent(stored);
     }
 
-    const data = await res.json().catch(() => ({}));
     if (!res.ok || data.error) {
       const msg = data.error?.message || data.error || `HTTP ${res.status}`;
       return { ok: false, error: String(msg) };
