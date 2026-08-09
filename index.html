@@ -523,12 +523,20 @@ async function fetchGoogleCalendarEvents(hallKey, startDate, endDate) {
 async function loadGoogleEvents(hallIds, startDate, endDate) {
   let newGoogleEvents = [];
   for (const id of hallIds) {
+    const calendarId = calendarIdFor(id);
     const items = await fetchGoogleCalendarEvents(id, startDate, endDate);
     items.forEach(event => {
+      /* Событие, созданное этим же приложением, уже представлено локальной
+         бронью. Иначе оно показалось бы вторым «призрачным» блоком рядом
+         с настоящим. Источник истины для таких событий — локальная бронь. */
+      if (findBookingByGoogleEvent(event.id, calendarId)) return;
+
       const sDate = new Date(event.start);
       const eDate = new Date(event.end);
       newGoogleEvents.push({
         id: "g_" + event.id,
+        googleEventId: event.id,
+        googleCalendarId: calendarId,
         hallId: id,
         name: event.summary,
         date: iso(sDate),
@@ -591,7 +599,7 @@ const DEF = {
 };
 
 let cfg = load("tomson_cfg", DEF);
-let bookings = load("tomson_bk", []);
+let bookings = migrateBookings(load("tomson_bk", []));
 let hallId = cfg.halls[0]?.id || "sphere";
 let allHallsMode = false;
 let view = "month";
@@ -606,6 +614,43 @@ function load(k, d) {
 function save() {
   localStorage.setItem("tomson_cfg", JSON.stringify(cfg));
   localStorage.setItem("tomson_bk", JSON.stringify(bookings));
+}
+
+/* ========== Связь брони с событием Google Calendar ==========
+   googleEventId  — id события в Google. Пока пуст, бронь в Google не выгружалась.
+   googleCalendarId — календарь, в котором лежит событие. Нужен отдельно от
+   зала: при смене зала событие переносится в другой календарь, и старый
+   календарь нужно знать, чтобы удалить событие оттуда.
+   Без этой пары синхронизация будет создавать дубликаты (CLAUDE_CONTEXT §25). */
+
+function migrateBookings(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map(b => ({
+    googleEventId: null,
+    googleCalendarId: null,
+    ...b
+  }));
+}
+
+/* Календарь, в котором должна лежать бронь этого зала. */
+function calendarIdFor(hallKey) {
+  return GOOGLE_CALENDARS[hallKey] || null;
+}
+
+/* Локальная бронь, соответствующая событию Google. Единственное место,
+   где устанавливается это соответствие: сопоставлять по времени и имени
+   нельзя — и то и другое меняется. */
+function findBookingByGoogleEvent(eventId, calendarId) {
+  if (!eventId) return null;
+  return bookings.find(b =>
+    b.googleEventId === eventId &&
+    (!calendarId || !b.googleCalendarId || b.googleCalendarId === calendarId)
+  ) || null;
+}
+
+/* Бронь уже выгружена в Google? */
+function isLinkedToGoogle(b) {
+  return Boolean(b && b.googleEventId);
 }
 function $(id){ return document.getElementById(id); }
 
@@ -1117,9 +1162,16 @@ function saveBooking(){
   const selectedHallId = $("fHall").value;
   const h = cfg.halls.find(x => x.id === selectedHallId) || hall();
   
+  /* Форма не содержит служебных полей, поэтому связь с Google берём из
+     существующей брони, иначе каждое сохранение обрывало бы её и
+     следующая синхронизация создала бы дубликат события. */
+  const prev = editId ? bookings.find(x => x.id === editId) : null;
+
   const data = {
     id: editId || (crypto.randomUUID?.() || String(Date.now())),
     hallId: selectedHallId,
+    googleEventId: prev?.googleEventId ?? null,
+    googleCalendarId: prev?.googleCalendarId ?? null,
     name: $("fName").value.trim(),
     phone: $("fPhone").value.trim(),
     date: $("fDate").value,
