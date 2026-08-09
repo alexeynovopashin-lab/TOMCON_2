@@ -151,6 +151,12 @@ button{cursor:pointer}
 .flag{font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px}
 .flag.p{background:#ffb020;color:#3a2a00}
 .flag.m{background:#e6ecff;color:#2b46b8}
+/* Кнопка «Сохранить» гаснет, когда сохранять нечего, и загорается от любой
+   правки — по ней видно, есть ли несохранённые изменения. */
+.act[disabled]{opacity:.38;cursor:default;box-shadow:none}
+.act.pri[disabled]{background:var(--panel);color:var(--muted)}
+.actions-sec{display:flex;margin-top:10px}
+.act.quiet{background:none;box-shadow:none;opacity:.75;font-size:13px}
 
 /* Week view */
 .week-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -2px}
@@ -470,15 +476,22 @@ button{cursor:pointer}
       </div>
 
       <div class="fgroup full">Детали</div>
-      <div class="field full"><label>Теги</label><div class="tags" id="fTags"></div></div>
+      <div class="field full">
+        <details class="picker" id="fTagsWrap" open>
+          <summary><span>Теги</span><span class="picker-val" id="fTagsVal">не выбраны</span></summary>
+          <div class="picker-body"><div class="tags" id="fTags"></div></div>
+        </details>
+      </div>
       <div class="field full"><label>Заметки</label><textarea id="fNotes" placeholder="Споты, белая половина…"></textarea></div>
     </div>
     <div class="actions">
       <button class="act pri" id="bkSave"><svg viewBox="0 0 24 24"><use href="#i-save"/></svg>Сохранить</button>
-      <button class="act" id="bkSend1"><svg viewBox="0 0 24 24"><use href="#i-send"/></svg>Сообщение об оплате</button>
-      <button class="act" id="bkSend2"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg>Подтверждение</button>
+      <button class="act" id="bkSend1"><svg viewBox="0 0 24 24"><use href="#i-send"/></svg>Сообщение</button>
+      <button class="act" id="bkSend2"><svg viewBox="0 0 24 24"><use href="#i-check"/></svg>Подтвердить</button>
       <button class="act" id="bkICS" style="display:none"><svg viewBox="0 0 24 24"><use href="#i-cal"/></svg>Календарь (.ics)</button>
-      <button class="act danger" id="bkDel" style="display:none"><svg viewBox="0 0 24 24"><use href="#i-trash"/></svg>Удалить</button>
+    </div>
+    <div class="actions-sec">
+      <button class="act danger quiet" id="bkDel" style="display:none"><svg viewBox="0 0 24 24"><use href="#i-trash"/></svg>Удалить бронь</button>
     </div>
   </div>
 </div>
@@ -1547,9 +1560,20 @@ function openBooking(date, id, presetTime, specificHallId, presetEndTime){
   renderTags();
   renderEquipment();
   updateTotal();
-  $("fEquipWrap").open = selEquip.length > 0;
-  $("bkICS").style.display = cfg.showICS ? "" : "none";
+
+  /* Новая бронь и сохранённая — разные задачи.
+     При создании теги выбирают, поэтому список раскрыт. У сохранённой
+     брони их обычно только перечитывают, и раскрытый блок из 19 кнопок
+     оттесняет вниз то, ради чего карточку и открыли. */
+  $("fTagsWrap").open = !b;
+  $("fEquipWrap").open = !b ? false : selEquip.length > 0;
+  $("bkICS").style.display = (cfg.showICS && b) ? "" : "none";
   $("bkDel").style.display = b ? "" : "none";
+
+  /* Точка отсчёта для «есть ли несохранённые изменения» */
+  savedSnapshot = formSnapshot();
+  updateFormState();
+
   $("ovBooking").classList.add("show");
 }
 
@@ -1715,6 +1739,7 @@ function renderEquipment(){
         selEquip = selEquip.includes(id) ? selEquip.filter(x => x !== id) : [...selEquip, id];
         renderEquipment();
         updateTotal();
+        updateFormState();
       };
     });
   }
@@ -1742,6 +1767,52 @@ function updateTotal(){
     : "";
 }
 
+/* ========== Состояние формы брони ==========
+   «Сохранить» гаснет, когда сохранять нечего: у новой брони не хватает
+   обязательного, у существующей — ничего не изменилось. Любая правка
+   зажигает кнопку обратно. Так по ней видно, есть ли несохранённое,
+   и не приходится нажимать «на всякий случай». */
+let savedSnapshot = "";
+
+function formSnapshot(){
+  return JSON.stringify({
+    hall: $("fHall").value, date: $("fDate").value,
+    start: $("fStart").value, end: $("fEnd").value,
+    name: $("fName").value.trim(), phone: normPhone($("fPhone").value),
+    guests: $("fGuests").value, msg: $("fMsg").value, pay: $("fPay").value,
+    notes: $("fNotes").value, tags: [...selTags].sort(), equip: [...selEquip].sort()
+  });
+}
+
+function updateFormState(){
+  const isNew = !editId;
+  const filled = $("fName").value.trim() && $("fDate").value && $("fStart").value && $("fEnd").value;
+  const dirty = formSnapshot() !== savedSnapshot;
+
+  const save = $("bkSave");
+  save.disabled = !filled || !dirty;
+  save.title = !filled ? "Заполните имя, дату и время"
+             : !dirty  ? "Всё сохранено"
+             : "Есть несохранённые изменения";
+
+  /* Сообщения имеют смысл только для сохранённой брони: они собираются
+     из её данных и требуют телефона. */
+  const b = editId ? bookings.find(x => x.id === editId) : null;
+  const canSend = Boolean(b) && normPhone(b.phone).length === 11;
+  $("bkSend1").disabled = !canSend;
+  $("bkSend2").disabled = !canSend;
+  const why = !b ? "Сначала сохраните бронь" : !canSend ? "Нужен телефон клиента" : "";
+  $("bkSend1").title = why;
+  $("bkSend2").title = why;
+
+  renderTagsSummary();
+  return { isNew, dirty, filled };
+}
+
+function renderTagsSummary(){
+  $("fTagsVal").textContent = selTags.length ? selTags.join(" ") : "не выбраны";
+}
+
 function renderTags(){
   $("fTags").innerHTML = cfg.tags.map(e =>
     `<button type="button" class="tag ${selTags.includes(e)?"on":""}" data-e="${e}">${e}</button>`
@@ -1752,6 +1823,7 @@ function renderTags(){
       if (selTags.includes(e)) selTags = selTags.filter(x => x !== e);
       else selTags.push(e);
       renderTags();
+      updateFormState();
     };
   });
 }
@@ -1801,6 +1873,9 @@ function saveBooking(){
   toast("Сохранено");
   render();
   $("bkDel").style.display = "";
+  /* Сохранили — кнопка гаснет до следующей правки */
+  savedSnapshot = formSnapshot();
+  updateFormState();
 
   /* Бронь уходит в календарь сама. Отдельная кнопка означала бы, что
      выгрузку можно забыть нажать, и расписание разошлось бы с приложением.
@@ -2236,6 +2311,9 @@ attachPhoneFormatting($("fPhone"));
   $(id).addEventListener("change", updateTotal);
   $(id).addEventListener("input", updateTotal);
 });
+/* Любая правка в форме зажигает «Сохранить» */
+$("ovBooking").addEventListener("input", updateFormState);
+$("ovBooking").addEventListener("change", updateFormState);
 $("stTabs").querySelectorAll("button").forEach(b => {
   b.onclick = () => settingsTab(b.dataset.tab);
 });
