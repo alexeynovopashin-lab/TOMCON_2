@@ -10,5 +10,9 @@ id = "22926bb031944e9a88ca0da52b489594"
 binding = "RENT_REQUESTS"
 id = "7497812ad5b64b749236d46642eaea71"
 
+[[kv_namespaces]]
+binding = "CONTACTS"
+id = "989f2f5d314b4cec9afac5879d6b4ad9"
+
 [vars]
 POST_AUTH_REDIRECT = "https://alexeynovopashin-lab.github.io/TOMCON_2/"

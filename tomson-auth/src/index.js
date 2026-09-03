@@ -48,6 +48,13 @@ function telFull(v) {
   if (d.length === 10) return "7" + d;
   return d;
 }
+// ID делается только с мобильного: городской принадлежит месту, а не
+// человеку (шаг 5). Используется для метки контакта в CONTACTS, не для
+// матча брони — там нужен telFull целиком.
+function appId(v) {
+  const d = telFull(v);
+  return (d.length === 11 && d[0] === "7" && d[1] === "9") ? "id" + d : "";
+}
 
 // Только источники, которым разрешено дёргать Worker: PWA студии на
 // GitHub Pages и (когда появится) страница Light Plan. Никакого "*" —
@@ -217,6 +224,22 @@ function phoneFromDescription(description) {
   return m ? telFull(m[1]) : "";
 }
 
+/* ========== Учёт клиентов (шаг 5 TASK_LIGHT_PLAN_BRIDGE.md) ==========
+   Флаг ставится наблюдением, а не выводом из номера: пришёл match —
+   "фотограф, есть LP", не пришёл — "неизвестно", а не "нет приложения".
+   Роль (фотограф/клиент) тоже не выводится — её здесь просто негде взять,
+   так что пишем только то, что реально наблюдали. UI поверх этой базы
+   не строим: Алексей пока хочет только саму запись (2026-09-03). */
+async function recordPhotographerObserved(env, phone) {
+  const id = appId(phone);
+  if (!id) return; // только мобильные — appId
+  const raw = await env.CONTACTS.get(id);
+  const record = raw ? JSON.parse(raw) : { personId: id, phone };
+  if (!record.photographerLPSince) record.photographerLPSince = new Date().toISOString();
+  record.photographerLP = true;
+  await env.CONTACTS.put(id, JSON.stringify(record));
+}
+
 async function handleBookingMatch(request, env) {
   const body = await request.json().catch(() => null);
   if (!body || typeof body.date !== "string" || typeof body.from !== "string" ||
@@ -245,6 +268,7 @@ async function handleBookingMatch(request, env) {
       if (event.status === "cancelled") continue;
       const phone = phoneFromDescription(event.description);
       if (phone && wanted.has(phone)) {
+        await recordPhotographerObserved(env, phone);
         return json({
           match: true,
           bookingRef: `${calendarId}:${event.id}`,
