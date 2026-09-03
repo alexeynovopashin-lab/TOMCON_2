@@ -577,6 +577,10 @@ const CALENDAR_SETS = {
 
 const GOOGLE_CALENDARS = CALENDAR_SETS[CALENDAR_MODE] || CALENDAR_SETS.test;
 const WORKER_URL = "https://tomson-auth.alexeynovopashin.workers.dev";
+/* Тот же секрет, что задан Worker'у через `wrangler secret put STUDIO_KEY».
+   Без него /calendar/* отвечает 401 — Этап 7 ROADMAP.md. */
+const STUDIO_KEY = "96d07d37eeff2bc9779eb1231c0e7f9cf905f229b4d5c856";
+const WORKER_HEADERS = { "X-Studio-Key": STUDIO_KEY };
 
 let googleEvents = [];
 let syncTimer = null;
@@ -588,7 +592,7 @@ async function fetchGoogleCalendarEvents(hallKey, startDate, endDate) {
   const timeMax = endDate.toISOString();
   const url = `${WORKER_URL}/calendar/calendars/${encodeURIComponent(calendarId)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`;
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: WORKER_HEADERS });
     if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
     const data = await response.json();
     return (data.items || []).map(event => ({
@@ -688,7 +692,7 @@ async function createGoogleEvent(b) {
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...WORKER_HEADERS },
       body: JSON.stringify(buildEventBody(b))
     });
     const data = await res.json().catch(() => ({}));
@@ -722,7 +726,7 @@ async function updateGoogleEvent(b) {
   try {
     const res = await fetch(url, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...WORKER_HEADERS },
       body: JSON.stringify(buildEventBody(b))
     });
 
@@ -756,7 +760,7 @@ async function deleteGoogleEvent(eventId, calendarId) {
   if (!eventId || !calendarId) return { ok: true };
   const url = `${WORKER_URL}/calendar/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`;
   try {
-    const res = await fetch(url, { method: "DELETE" });
+    const res = await fetch(url, { method: "DELETE", headers: WORKER_HEADERS });
     if (res.ok || res.status === 404 || res.status === 410) return { ok: true };
     const data = await res.json().catch(() => ({}));
     return { ok: false, error: data.error?.message || `HTTP ${res.status}` };
@@ -786,6 +790,123 @@ async function syncBookingToGoogle(b, prevCalendarId) {
   }
 
   return updateGoogleEvent(b);
+}
+
+/* ========== Продление аренды (шаг 3 TASK_LIGHT_PLAN_BRIDGE.md) ==========
+   Worker хранит только сам запрос (он не видит бронь — она живёт в
+   localStorage этой страницы). bookingRef — это связка "calendarId:eventId":
+   тот же ключ, что уже используется для правки события в Google, поэтому
+   продлить можно только бронь, уже выгруженную в календарь. */
+function bookingRefOf(b) {
+  if (!isLinkedToGoogle(b) || !b.googleCalendarId) return null;
+  return `${b.googleCalendarId}:${b.googleEventId}`;
+}
+
+let pendingRentRequests = [];
+
+async function loadRentRequests() {
+  let requests;
+  try {
+    const res = await fetch(`${WORKER_URL}/rent/pending`, { headers: WORKER_HEADERS });
+    if (!res.ok) return;
+    const data = await res.json();
+    requests = data.requests || [];
+  } catch (err) {
+    console.error("Продление: не удалось опросить заявки", err);
+    return;
+  }
+  /* Заявки, продлённые здесь локально, но ещё не подтверждённые Worker'у
+     (сеть подвела), Worker по-прежнему числит как "requested" — опрос
+     переписал бы pendingRentRequests и стёр бы locallyConfirmed, а
+     повторный клик "Подтвердить" продлил бы бронь второй раз. */
+  const unsent = pendingRentRequests.filter(r => r.locallyConfirmed);
+  const unsentIds = new Set(unsent.map(r => r.id));
+  pendingRentRequests = [...unsent, ...requests.filter(r => !unsentIds.has(r.id))];
+  if (view === "day" && !allHallsMode) renderDay();
+}
+
+async function respondToRentRequest(id, action, newEnd) {
+  try {
+    const res = await fetch(`${WORKER_URL}/rent/respond`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...WORKER_HEADERS },
+      body: JSON.stringify({ id, action, newEnd: newEnd || undefined })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: data.error || `HTTP ${res.status}` };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message || "Нет связи с сервером" };
+  }
+}
+
+/* Минуты дня → "HH:MM", с переходом через полночь: поле b.end хранит
+   голое время суток, как и везде в приложении (см. spanOf). */
+function hmStr(mins) {
+  const wrapped = ((mins % 1440) + 1440) % 1440;
+  const h = Math.floor(wrapped / 60), m = wrapped % 60;
+  return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
+}
+
+/* Та же проверка, что в saveBooking: конфликт с соседней бронью не
+   разрешается молча (§39, "конфликт показать администратору"). */
+function findRentClash(b, newEnd) {
+  const allBs = [...bookings, ...googleEvents];
+  return allBs.find(x =>
+    x.hallId === b.hallId && x.date === b.date && x.id !== b.id &&
+    b.start < x.end && newEnd > x.start
+  ) || null;
+}
+
+/* Подтвердить продление: правим бронь обычным путём (как saveBooking) —
+   локально сразу, в Google Calendar тем же механизмом без дубликата (§25).
+   Сбой Google не откатывает локальную правку — тот же принцип, что и в
+   saveBooking(). Ответ в Worker шлём отдельно: если он не дойдёт, бронь
+   уже продлена, а Light Plan без /rent/respond увидит "тишину" как отказ —
+   это расхождение хуже, чем просто не показать администратору кнопку,
+   поэтому запись остаётся в pendingRentRequests как "не отправлено" и
+   вызов можно повторить, не трогая бронь второй раз (req.locallyConfirmed). */
+async function confirmRentRequest(req) {
+  if (!req.locallyConfirmed) {
+    const b = bookings.find(x => bookingRefOf(x) === req.bookingRef);
+    if (!b) { toast("Бронь не найдена"); return; }
+
+    const newEnd = hmStr(hm(b.end) + req.minutes);
+    const clash = findRentClash(b, newEnd);
+    if (clash && !confirm(`В это время после продления уже есть бронь (${esc(clash.name||"без имени")}, ${clash.start}–${clash.end}). Продлить всё равно?`)) {
+      return;
+    }
+
+    b.end = newEnd;
+    save();
+    render();
+    toast(`Продлено до ${newEnd}`);
+
+    syncBookingToGoogle(b).then(res => {
+      if (!res.ok) { console.error("Google Calendar:", res.error); toast("Календарь не обновлён: " + res.error); }
+    });
+
+    req.locallyConfirmed = true;
+    req.newEnd = newEnd;
+  }
+
+  const resp = await respondToRentRequest(req.id, "confirm", req.newEnd);
+  if (!resp.ok) {
+    console.error("Продление: ответ не отправлен", resp.error);
+    toast("Бронь продлена, но студия ещё не сообщила об этом Light Plan — повторите отправку");
+    if (view === "day" && !allHallsMode) renderDay();
+    return;
+  }
+  pendingRentRequests = pendingRentRequests.filter(r => r.id !== req.id);
+  if (view === "day" && !allHallsMode) renderDay();
+}
+
+async function declineRentRequest(req) {
+  const resp = await respondToRentRequest(req.id, "decline");
+  if (!resp.ok) { toast("Не удалось отклонить: " + resp.error); return; }
+  pendingRentRequests = pendingRentRequests.filter(r => r.id !== req.id);
+  toast("Отклонено");
+  if (view === "day" && !allHallsMode) renderDay();
 }
 
 /* Резервный путь: открыть веб-форму Google. Используется, если запись
@@ -1185,9 +1306,23 @@ function renderDay(){
     const top = gridTop(b, 56);
     const hgt = gridHeight(b, 56, 44);
     const tags = (b.tags||[]).join("");
+    /* Заявка на продление от Light Plan — переговоры, не уведомление:
+       кнопки прямо тут, рядом с бронью, как требует шаг 3 задачи. */
+    const req = pendingRentRequests.find(r => r.bookingRef === bookingRefOf(b));
+    const reqHtml = !req ? "" : req.locallyConfirmed
+      ? `<div class="rent-req" data-req-id="${req.id}" style="margin-top:4px;padding:4px 6px;background:#fff3cd;border-radius:6px;font-size:12px;display:flex;flex-wrap:wrap;align-items:center;gap:6px">
+          <span>Продлено до ${req.newEnd}, Light Plan ещё не уведомлён</span>
+          <button type="button" data-act="confirm" style="font-size:12px;padding:2px 8px">Повторить отправку</button>
+        </div>`
+      : `<div class="rent-req" data-req-id="${req.id}" style="margin-top:4px;padding:4px 6px;background:#fff3cd;border-radius:6px;font-size:12px;display:flex;flex-wrap:wrap;align-items:center;gap:6px">
+          <span>Продлить на ${req.minutes} мин, до ${hmStr(hm(b.end)+req.minutes)}?</span>
+          <button type="button" data-act="confirm" style="font-size:12px;padding:2px 8px">Подтвердить</button>
+          <button type="button" data-act="decline" style="font-size:12px;padding:2px 8px">Отклонить</button>
+        </div>`;
     html += `<div class="bitem ${payCls(b.pay)}" style="top:${top}px;height:${hgt}px;border-color:${getHallColor(b.hallId)}" data-id="${b.id}">
       <strong>${paySym(b.pay)}${tags} ${esc(b.name)}${phoneMark(b)}</strong>
       <small>${b.start}–${b.end} · ${b.guests||"?"} чел.</small>
+      ${reqHtml}
     </div>`;
   });
   html += "</div></div></div>";
@@ -1198,6 +1333,16 @@ function renderDay(){
       e.stopPropagation();
       if (el.dataset.id.startsWith("g_")) return;
       openBooking(null, el.dataset.id);
+    };
+  });
+  $("calendar").querySelectorAll(".rent-req button").forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const reqId = btn.closest(".rent-req").dataset.reqId;
+      const req = pendingRentRequests.find(r => r.id === reqId);
+      if (!req) return;
+      if (btn.dataset.act === "confirm") confirmRentRequest(req);
+      else declineRentRequest(req);
     };
   });
 }
@@ -2347,6 +2492,14 @@ syncTimer = setInterval(() => {
   }
   loadGoogleEvents(hallsToLoad, startDate, endDate);
 }, 300000);
+
+/* Опрос заявок на продление — своим таймером, чаще, чем синхронизация
+   календаря: это переговоры со сроком ответа в минутах, а не фоновая
+   сверка расписания. */
+let rentPollTimer = null;
+if (rentPollTimer) clearInterval(rentPollTimer);
+rentPollTimer = setInterval(loadRentRequests, 20000);
+loadRentRequests();
 
 /* SW */
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(()=>{});
