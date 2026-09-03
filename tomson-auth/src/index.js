@@ -59,8 +59,13 @@ function appId(v) {
 // Только источники, которым разрешено дёргать Worker: PWA студии на
 // GitHub Pages и (когда появится) страница Light Plan. Никакого "*" —
 // Worker обслуживает не только администратора, а любого, кто знает URL.
+// localhost:8788 — локальная копия Light Plan для разработки (запрос
+// Light Plan-стороны, 2026-09-03): без него правка сетевого слоя не
+// проверяется без пуша на бету. CORS сам по себе не даёт доступа —
+// без правильного ключа (X-Studio-Key) запрос всё равно упрётся в 401.
 const ALLOWED_ORIGINS = [
   "https://alexeynovopashin-lab.github.io",
+  "http://localhost:8788",
 ];
 
 function cors(request) {
