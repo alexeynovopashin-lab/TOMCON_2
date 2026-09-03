@@ -14,5 +14,9 @@ id = "7497812ad5b64b749236d46642eaea71"
 binding = "CONTACTS"
 id = "989f2f5d314b4cec9afac5879d6b4ad9"
 
+[[kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "deefb9273faf415bac8b31388112bc18"
+
 [vars]
 POST_AUTH_REDIRECT = "https://alexeynovopashin-lab.github.io/TOMCON_2/"

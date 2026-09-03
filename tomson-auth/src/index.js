@@ -83,13 +83,38 @@ function json(data, status = 200, request) {
   });
 }
 
-// Общий секрет для эндпоинтов, к которым обращается внешний код (не сам PWA
-// студии через свою же сессию) — сейчас /calendar/*, дальше и /studio,
-// /rent/*, /booking/match из шагов 2–3. Секрет задаётся через
-// `wrangler secret put STUDIO_KEY`.
-function hasValidStudioKey(request, env) {
-  if (!env.STUDIO_KEY) return false;
-  return request.headers.get("X-Studio-Key") === env.STUDIO_KEY;
+/* Два ключа с разными правами (правка по ревью Light Plan, 2026-09-03):
+   Light Plan — статика на GitHub Pages, значит любой ключ, который в неё
+   попадёт, невозможно скрыть от чтения через "просмотр исходного кода".
+   STUDIO_KEY поэтому не должен открывать /calendar/* тому, кто прочитал
+   исходник Light Plan — только администраторские эндпоинты.
+   GUEST_KEY — не секрет в криптографическом смысле (он и не должен им
+   быть): его студия выдаёт фотографу и он вводится руками в карточке
+   студии в Light Plan, а не зашивается в код. Открывает только то, что
+   Light Plan умеет делать сама за себя: /studio, /booking/match,
+   /rent/extend, /rent/status. */
+function hasValidKey(request, expected) {
+  if (!expected) return false;
+  return request.headers.get("X-Studio-Key") === expected;
+}
+function hasValidAdminKey(request, env) { return hasValidKey(request, env.STUDIO_KEY); }
+function hasValidGuestKey(request, env) { return hasValidKey(request, env.GUEST_KEY); }
+
+/* Лимит частоты на /booking/match — с гостевым ключом (не секретным)
+   endpoint иначе позволяет перебирать номера и подглядывать, у кого есть
+   бронь. Окно фиксированное, минутное; счётчик в KV не атомарный, но при
+   таком масштабе (одна студия) это осознанно принятый остаточный риск,
+   а не полноценная защита от перебора — общий гостевой ключ отозвать
+   можно только сменой для всех. */
+async function isRateLimited(env, request, bucket, limit) {
+  const ip = request.headers.get("CF-Connecting-IP");
+  if (!ip) return false; // нет IP — не блокируем, лимит не про это
+  const key = `${bucket}:${ip}:${Math.floor(Date.now() / 60000)}`;
+  const raw = await env.RATE_LIMIT.get(key);
+  const count = raw ? parseInt(raw, 10) : 0;
+  if (count >= limit) return true;
+  await env.RATE_LIMIT.put(key, String(count + 1), { expirationTtl: 120 });
+  return false;
 }
 
 /* ========== Продление аренды (шаг 3 TASK_LIGHT_PLAN_BRIDGE.md) ==========
@@ -338,7 +363,7 @@ export default {
 
       if (url.pathname === "/studio") {
         if (request.method !== "GET") return json({ error: "Method not allowed" }, 405, request);
-        if (!hasValidStudioKey(request, env)) {
+        if (!hasValidGuestKey(request, env)) {
           return json({ error: "Unauthorized" }, 401, request);
         }
         return json(STUDIO_CARD, 200, request);
@@ -346,36 +371,39 @@ export default {
 
       if (url.pathname === "/rent/extend") {
         if (request.method !== "POST") return json({ error: "Method not allowed" }, 405, request);
-        if (!hasValidStudioKey(request, env)) return json({ error: "Unauthorized" }, 401, request);
+        if (!hasValidGuestKey(request, env)) return json({ error: "Unauthorized" }, 401, request);
         return await handleRentExtend(request, env);
       }
 
       if (url.pathname === "/rent/status") {
         if (request.method !== "GET") return json({ error: "Method not allowed" }, 405, request);
-        if (!hasValidStudioKey(request, env)) return json({ error: "Unauthorized" }, 401, request);
+        if (!hasValidGuestKey(request, env)) return json({ error: "Unauthorized" }, 401, request);
         return await handleRentStatus(request, env, url);
       }
 
       if (url.pathname === "/rent/pending") {
         if (request.method !== "GET") return json({ error: "Method not allowed" }, 405, request);
-        if (!hasValidStudioKey(request, env)) return json({ error: "Unauthorized" }, 401, request);
+        if (!hasValidAdminKey(request, env)) return json({ error: "Unauthorized" }, 401, request);
         return await handleRentPending(request, env);
       }
 
       if (url.pathname === "/rent/respond") {
         if (request.method !== "POST") return json({ error: "Method not allowed" }, 405, request);
-        if (!hasValidStudioKey(request, env)) return json({ error: "Unauthorized" }, 401, request);
+        if (!hasValidAdminKey(request, env)) return json({ error: "Unauthorized" }, 401, request);
         return await handleRentRespond(request, env);
       }
 
       if (url.pathname === "/booking/match") {
         if (request.method !== "POST") return json({ error: "Method not allowed" }, 405, request);
-        if (!hasValidStudioKey(request, env)) return json({ error: "Unauthorized" }, 401, request);
+        if (!hasValidGuestKey(request, env)) return json({ error: "Unauthorized" }, 401, request);
+        if (await isRateLimited(env, request, "booking_match", 10)) {
+          return json({ error: "Too many requests" }, 429, request);
+        }
         return await handleBookingMatch(request, env);
       }
 
       if (url.pathname.startsWith("/calendar/")) {
-        if (!hasValidStudioKey(request, env)) {
+        if (!hasValidAdminKey(request, env)) {
           return json({ error: "Unauthorized" }, 401, request);
         }
 
