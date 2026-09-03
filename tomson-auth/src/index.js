@@ -20,6 +20,35 @@ const STUDIO_CARD = {
   ]
 };
 
+// Календари залов — те же id, что и в index.html CALENDAR_SETS. Пока
+// "test": боевые календари ещё не заведены (ROADMAP, Этап 8). Обновить
+// здесь и там синхронно при переключении на "live".
+const HALL_CALENDARS = {
+  sphere: "5cd94eec5d9e29ae224dd1d75f8e6d06ce2234570ed22aeb1011df2d996ee5f3@group.calendar.google.com",
+  edison: "6f89fde3c9c8fb16463cae64d30e92f3f3b96a3cf9fe3784dcf6d8d7f5616c13@group.calendar.google.com",
+  vegas:  "8a5d49e1c87dd7cd07e6ee9382732b9515df65b334de1558f3bf6028617ed975@group.calendar.google.com"
+};
+// Тот же часовой пояс, что в index.html CALENDAR_TZ ("Asia/Tomsk", без
+// перехода на летнее время — смещение постоянно).
+const STUDIO_TZ_OFFSET = "+07:00";
+
+// Ключ сверки телефона — нормализатор Алексея (2026-09-03), российская
+// ветка: у студии брони российские, разбирать два десятка стран незачем.
+// Сравнивать нужно этим (telFull), а не appId: appId годится только для
+// мобильных (шаг 5, метка контакта), а матч брони должен ловить и то, что
+// appId отбросит.
+function telDigits(v) { return String(v || "").replace(/\D/g, ""); }
+function telFull(v) {
+  const raw = String(v || "");
+  const d = telDigits(raw);
+  if (!d) return "";
+  if (/^\s*\+/.test(raw)) return d;
+  if (d.length > 2 && d.slice(0, 2) === "00") return d.slice(2);
+  if (d.length === 11 && d[0] === "8") return "7" + d.slice(1);
+  if (d.length === 10) return "7" + d;
+  return d;
+}
+
 // Только источники, которым разрешено дёргать Worker: PWA студии на
 // GitHub Pages и (когда появится) страница Light Plan. Никакого "*" —
 // Worker обслуживает не только администратора, а любого, кто знает URL.
@@ -179,6 +208,57 @@ async function handleRentRespond(request, env) {
   return json({ id: record.id, status: record.status, newEnd: record.newEnd }, 200, request);
 }
 
+/* ========== Связь по номеру (шаг 4 TASK_LIGHT_PLAN_BRIDGE.md) ==========
+   Единственный источник телефона у Worker'а — текст события Google Calendar
+   (buildEventBody в index.html кладёт "Телефон: ..." в description). Своей
+   базы броней у Worker'а нет и не будет — см. комментарий у bookingRefOf. */
+function phoneFromDescription(description) {
+  const m = /Телефон:\s*([^\n]+)/.exec(String(description || ""));
+  return m ? telFull(m[1]) : "";
+}
+
+async function handleBookingMatch(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body.date !== "string" || typeof body.from !== "string" ||
+      typeof body.to !== "string" || !Array.isArray(body.phones)) {
+    return json({ error: "Bad request" }, 400, request);
+  }
+
+  // Ничего из присланных ключей не логируем и не сохраняем — ни здесь,
+  // ни при непопадании: несовпавший номер студии не принадлежит и не
+  // должен у неё появиться (правило шага 4).
+  const wanted = new Set(body.phones.map(telFull).filter(Boolean));
+  if (!wanted.size) return json({ match: false }, 200, request);
+
+  const timeMin = `${body.date}T${body.from}:00${STUDIO_TZ_OFFSET}`;
+  const timeMax = `${body.date}T${body.to}:00${STUDIO_TZ_OFFSET}`;
+  const token = await getAccessToken(env);
+
+  for (const [hallId, calendarId] of Object.entries(HALL_CALENDARS)) {
+    if (!calendarId) continue;
+    const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events` +
+      `?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) continue;
+    const data = await res.json();
+    for (const event of data.items || []) {
+      if (event.status === "cancelled") continue;
+      const phone = phoneFromDescription(event.description);
+      if (phone && wanted.has(phone)) {
+        return json({
+          match: true,
+          bookingRef: `${calendarId}:${event.id}`,
+          hallId,
+          start: (event.start?.dateTime || "").slice(11, 16),
+          end: (event.end?.dateTime || "").slice(11, 16)
+        }, 200, request);
+      }
+    }
+  }
+
+  return json({ match: false }, 200, request);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -262,6 +342,12 @@ export default {
         if (request.method !== "POST") return json({ error: "Method not allowed" }, 405, request);
         if (!hasValidStudioKey(request, env)) return json({ error: "Unauthorized" }, 401, request);
         return await handleRentRespond(request, env);
+      }
+
+      if (url.pathname === "/booking/match") {
+        if (request.method !== "POST") return json({ error: "Method not allowed" }, 405, request);
+        if (!hasValidStudioKey(request, env)) return json({ error: "Unauthorized" }, 401, request);
+        return await handleBookingMatch(request, env);
       }
 
       if (url.pathname.startsWith("/calendar/")) {
